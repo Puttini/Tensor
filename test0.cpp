@@ -89,7 +89,7 @@ public:
     int stride_[dim];
     int shape_[dim];
 
-    // A bit more tricky : from another Tensor (including strange strides)
+    // A bit tricky : from another Tensor (including strange strides)
     // It can be a pybind array, an Eigen matrix, another Tensor, or whatever
     template< int s, int other_s, int other_dim, typename ShapeType, typename StrideType, typename ... Dimensions, typename = EnableIf< (s>=0&&other_s>=0) > >
     inline void init_reshape_tensor( const Shape<other_dim,ShapeType>& other_shape,
@@ -101,17 +101,21 @@ public:
         int new_total_size = current_total_size*nth_of_pack<s>(dimensions...);
         int other_new_total_size = other_current_total_size*other_shape.shape[other_s];
 
-        std::cout << s << "," << other_s << ":" << std::endl;
-        std::cout << " " << current_total_size << std::endl;
-        std::cout << " " << other_current_total_size << std::endl;
         shape_[s] = nth_of_pack<s>(dimensions...);
 
-        if ( current_total_size*nth_of_pack<s>(dimensions...) == other_current_total_size*other_shape.shape[other_s] )
+        if ( new_total_size == other_new_total_size )
         {
-            std::cout << " ==" << std::endl;
             stride_[s] = other_stride.stride[other_s];
 
-            if ( s > 0 )
+            if ( s > 0 && other_s > 0)
+            {
+                init_reshape_tensor<s-1,other_s-1,other_dim,ShapeType,StrideType>(
+                        other_shape, other_stride,
+                        new_total_size,
+                        other_new_total_size,
+                        dimensions... );
+            }
+            else if ( s > 0 )
             {
                 init_reshape_tensor<s-1,other_s,other_dim,ShapeType,StrideType>(
                         other_shape, other_stride,
@@ -119,7 +123,7 @@ public:
                         other_current_total_size,
                         dimensions... );
             }
-            else
+            else if ( other_s > 0 )
             {
                 init_reshape_tensor<s,other_s-1,other_dim,ShapeType,StrideType>(
                         other_shape, other_stride,
@@ -128,24 +132,21 @@ public:
                         dimensions... );
             }
         }
-        else if ( current_total_size*nth_of_pack<s>(dimensions...) > other_current_total_size*other_shape.shape[other_s] )
+        else if ( new_total_size > other_new_total_size )
         {
-            std::cout << " >" << std::endl;
-            std::cout << " " << (other_current_total_size*other_shape.shape[other_s]*other_stride.stride[other_s]) << " " << other_stride.stride[other_s-1] << std::endl;
             // Split other dimension. The strides must be compatible
             assert( other_dim > 0
-                    && (other_current_total_size*other_shape.shape[other_s]*other_stride.stride[other_s] == other_stride.stride[other_s-1])
+                    && other_shape.shape[other_s]*other_stride.stride[other_s] == other_stride.stride[other_s-1]
                     && "Incompatible stride/shape" );
 
             init_reshape_tensor<s,other_s-1,other_dim,ShapeType,StrideType>(
                     other_shape, other_stride,
                     current_total_size,
-                    other_current_total_size*other_shape.shape[other_s],
+                    other_new_total_size,
                     dimensions... );
         }
-        else // current_total_size < other_current_total_size
+        else // new_total_size < other_new_total_size
         {
-            std::cout << " <" << std::endl;
             // Split this dimension. The strides have no constraint
             stride_[s] = (s == dim-1)
                          ? other_stride.innerStride()
@@ -153,7 +154,7 @@ public:
 
             init_reshape_tensor<s-1,other_s,other_dim,ShapeType,StrideType>(
                     other_shape, other_stride,
-                    current_total_size*nth_of_pack<s>(dimensions...),
+                    new_total_size,
                     other_current_total_size,
                     dimensions... );
         }
@@ -178,8 +179,8 @@ int main()
   
   t1.stride_[3] = 5;
   t1.stride_[2] = 10;
-  t1.stride_[1] = 40;
-  t1.stride_[0] = 200;
+  t1.stride_[1] = 30;
+  t1.stride_[0] = 250;
   
   TensorMap<float,5> t2;
   t2.init_reshape_tensor<4,3,4,int,int>( Shape<4,int>( t1.shape_ ), Stride<4,int>( t1.stride_ ),
