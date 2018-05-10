@@ -1,3 +1,6 @@
+#include <Eigen/Core>
+#include <cassert>
+
 namespace TensorMapTools
 {
 
@@ -24,12 +27,15 @@ using Const = typename Const_<ScalType>::type;
 template< typename ScalType >
 using NonConst = typename NonConst_<ScalType>::type;
 
+// Template variable only available in C++14
 template< typename ScalType >
-constexpr bool IsConst = std::is_const<AsThis>::value;
+constexpr bool IsConst() { return std::is_const<ScalType>::value; }
+
+template< typename FromScalType, typename ToScalType >
+constexpr bool ConstCompatible() { return !IsConst<FromScalType>() || IsConst<ToScalType>(); }
 
 template< typename AsThis, typename Type >
-using ConstAs = typename std::conditional< IsConst<AsThis>, Const<Type>, NonConst<Type> >::type;
-
+using ConstAs = typename std::conditional< IsConst<AsThis>(), Const<Type>, NonConst<Type> >::type;
 
 // ----- EnableIf tricks -----
 
@@ -89,9 +95,6 @@ first_of_pack( Pack&& ... pack )
 
 // ----- Stride and shape tool structures -----
 
-// These little structs are used to keep easy-to-read constructors
-// of TensorMapBase
-
 template< int dim, typename Integer >
 struct Shape
 {
@@ -131,44 +134,47 @@ struct Stride
     }
 };
 
+struct InnerStride
+{
+    int inner;
+    explicit InnerStride( int i )
+     : inner(i)
+    {}
+};
+
 // Eigen dynamic strides
 typedef Eigen::InnerStride<Eigen::Dynamic> DynInnerStride;
 typedef Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic> DynStride;
 
-// ----- Forward declarations -----
+// Eigen matrix and vector
+// REMOVE ME
+template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
+using MatrixRM = Eigen::Matrix<ScalType,rows,cols,Eigen::RowMajor>;
 
-template< typename ScalType, int dim, int current_dim >
-class TensorDim;
+template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
+using MatrixCM = Eigen::Matrix<ScalType,rows,cols,Eigen::ColMajor>;
+
+template< typename ScalType, int size = Eigen::Dynamic >
+using Vector = MatrixCM<ScalType,size,1>;
+
+// ----- Forward declarations -----
 
 template< typename ScalType, int dim >
 class TensorOwn;
 
-template< typename Derived >
-class TensorBase;
-
-template< typename Derived >
-class TensorMapBase;
-
-template< typename Derived >
-class TensorOwnBase;
-
-template< typename Derived >
-class TensorBase_MatrixLike;
-
-template< typename Derived >
-class TensorBase_VectorLike;
+template< typename ScalType, int dim >
+class TensorMap;
 
 // ----- Traits -----
 
 template< typename Type >
 struct Traits;
 
-template< typename _ScalType, int _dim, int _current_dim >
-struct Traits< TensorDim<_ScalType,_dim,_current_dim> >
+template< typename _ScalType, int _dim >
+struct Traits< TensorMap<_ScalType,_dim> >
 {
     typedef _ScalType ScalType;
     static constexpr int dim = _dim;
-    static constexpr int current_dim = _current_dim;
     static constexpr bool owns = false;
 };
 
@@ -177,40 +183,33 @@ struct Traits< TensorOwn<_ScalType,_dim> >
 {
     typedef _ScalType ScalType;
     static constexpr int dim = _dim;
-    static constexpr int current_dim = 0;
     static constexpr bool owns = true;
 };
 
 // ----- TensorBase -----
 
+// This CRTP class describes the generic behaviour
 template< typename Derived >
 class TensorBase
 {
 public:
-    typedef typename Traits<Derived>::ScalType CScalType;
-    typedef NonConst<CScalType> ScalType;
+    typedef typename Traits<Derived>::ScalType ScalType;
     constexpr static int dim = Traits<Derived>::dim;
-    constexpr static int current_dim = Traits<Derived>::current_dim;
     constexpr static bool owns = Traits<Derived>::owns;
 
     typedef Eigen::Ref<ConstAs<ScalType, MatrixRM<NonConst<ScalType>>>,
             Eigen::Unaligned, DynStride>
-            EigenRef;
+            MatrixRef;
+    typedef Eigen::Ref<ConstAs<ScalType, Vector<NonConst<ScalType>>>,
+            Eigen::Unaligned, DynInnerStride>
+            VectorRef;
     static_assert(dim > 0, "You are a weird person");
 
 public:
     Derived& derived() { return *static_cast<Derived*>(this); }
     const Derived& derived() const { return *static_cast<const Derived*>(this); }
 
-    TensorBase()
-     : data_(NULL)
-    {
-        for ( int& s : stride_ )
-            s = 0;
-        for ( int& s : shape_ )
-            s = 0;
-    }
-
+    // --- Shape/Stride/Data accessors ---
 
     Stride<dim,int> stride() const
     { return { stride_ }; }
@@ -224,7 +223,7 @@ public:
     int shape( int i ) const
     { return shape_[i]; }
 
-    template< typename = EnableIf< !IsConst<ScalType> > >
+    template< typename = EnableIf< !IsConst<ScalType>() > >
     ScalType* data()
     { return data_; }
 
@@ -232,9 +231,10 @@ public:
     { return data_; }
 
 protected:
+    TensorBase() = default;
     TensorBase( EmptyConstructor ) {}
 
-    ScalType *data_;
+    ScalType* data_;
     int shape_[dim];
     int stride_[dim];
 
@@ -244,7 +244,7 @@ protected:
     inline void init_sns_from_shape( int s, OtherDimensions ... other_dimensions )
     {
         shape_[d] = s;
-        init_from_shape<d+1>( other_dimensions... );
+        init_sns_from_shape<d+1>( other_dimensions... );
         stride_[d] = shape_[d + 1] * stride_[d + 1];
     }
     template< int s >
@@ -264,10 +264,10 @@ protected:
 
     // A bit tricky : from another Tensor (including strange strides)
     // It can be a pybind array, an Eigen matrix, another Tensor, or whatever
-    // It has to be recursive to access statically the members of Dimensions...
+    // It has to be recursive to statically access the members of Dimensions...
     template< int s, int other_s,
         int other_dim, typename ShapeType, typename StrideType,
-        typename ... Dimensions, typename = EnableIf< (s>=0&&other_s>=0) > >
+        typename ... Dimensions, typename = EnableIf<(s>=0 && other_s>=0)> >
     inline void init_sns_reshape_tensor( const Shape<other_dim,ShapeType>& other_shape,
                               const Stride<other_dim,StrideType>& other_stride,
                               int current_total_size,
@@ -328,17 +328,18 @@ protected:
                          ? other_stride.innerStride()
                          : stride_[s+1] * shape_[s+1];
 
-            init_reshape_tensor<s-1,other_s,other_dim,ShapeType,StrideType>(
+            init_sns_reshape_tensor<s-1,other_s,other_dim,ShapeType,StrideType>(
                     other_shape, other_stride,
                     new_total_size,
                     other_current_total_size,
                     dimensions... );
         }
     }
-    
+
+    // Fortunately we can overload the base case of the function by using 'const'
     template< int s, int other_s, int other_dim,
         typename ShapeType, typename StrideType,
-        typename ... Dimensions, typename = EnableIf< (s<0||other_s<0) > >
+        typename ... Dimensions, typename = EnableIf<(s<0||other_s<0)> >
     inline void init_sns_reshape_tensor( const Shape<other_dim,ShapeType>& other_shape,
                               const Stride<other_dim,StrideType>& other_stride,
                               int current_total_size,
@@ -347,29 +348,30 @@ protected:
     {}
 
 public:
+    //TODO put it on the top
     // Reshape the tensor
-    template< int new_dim, Dimensions ... dimensions,
-        typename = EnableIf< sizeof...(Dimensions)==new_dim && !IsConst<ScalType> > >
+    template< int new_dim, typename ... Dimensions,
+        typename = EnableIf< sizeof...(Dimensions)==new_dim && !IsConst<ScalType>() > >
     TensorMap< ScalType, new_dim >
     reshape( Dimensions ... dimensions )
     {
         TensorMap< ScalType, new_dim > t( EmptyConstructor() );
         t.data_ = data_;
-        t.init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+        t.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
                 shape(), stride(),
                 1, 1,
                 dimensions... );
         return t;
     }
 
-    template< int new_dim, Dimensions ... dimensions,
+    template< int new_dim, typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions)==new_dim > >
     TensorMap< Const<ScalType>, new_dim >
     reshape( Dimensions ... dimensions ) const
     {
         TensorMap< Const<ScalType>, new_dim > t( EmptyConstructor() );
         t.data_ = data_;
-        t.init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+        t.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
                 shape(), stride(),
                 1, 1,
                 dimensions... );
@@ -377,13 +379,13 @@ public:
     }
 
     // You can omit the new dimension
-    template< Dimensions ... dimensions,
-        typename = EnableIf< !IsConst<ScalType> > >
+    template< typename ... Dimensions,
+        typename = EnableIf< !IsConst<ScalType>() > >
     inline TensorMap< ScalType, sizeof...(Dimensions) >
     reshape( Dimensions ... dimensions )
     { return reshape< sizeof...(Dimensions), Dimensions... >( dimensions... ); }
 
-    template< Dimensions ... dimensions >
+    template< typename ... Dimensions >
     inline TensorMap< Const<ScalType>, sizeof...(Dimensions) >
     reshape( Dimensions ... dimensions ) const
     { return reshape< sizeof...(Dimensions), Dimensions... >( dimensions... ); }
@@ -413,7 +415,9 @@ protected:
 
     template< int contract_dim, typename ShapeType, typename StrideType,
         typename = EnableIf< (contract_dim<dim) > >
-    void init_sns_from_contraction( const Shape<dim+1>& shape, const Stride<dim+1>& stride )
+    void init_sns_from_contraction(
+            const Shape<dim+1,ShapeType>& shape,
+            const Stride<dim+1,StrideType>& stride )
     {
         assert( stride[contract_dim] == stride[contract_dim+1] * shape[contract_dim+1]
                 && "Dimension cannot be contracted" );
@@ -427,12 +431,13 @@ protected:
     }
 
 public:
+    /*
     // Returns a slice, along SliceDim
     template<int SliceDim>
-    TensorMap_Dim<Const<ScalType>,dim-1,0> slice(int idx) const
+    TensorMap<Const<ScalType>,dim-1> slice(int idx) const
     { return TensorMap_Dim<Const<ScalType>,dim-1,0>(Slice<SliceDim>(idx), *this); }
     template<int SliceDim>
-    TensorMap_Dim<ScalType,dim-1,0> slice(int idx)
+    TensorMap<ScalType,dim-1> slice(int idx)
     { return TensorMap_Dim<ScalType,dim-1,0>(Slice<SliceDim>(idx), *this); }
 
     // Equivalent to tensor block
@@ -457,10 +462,11 @@ public:
         res.data_ += begin * stride_[SliceDim];
         res.shape_[SliceDim] = sz;
         return res;
-    }
+    }*/
 
 
     // --- Utility methods ---
+    //TODO Put them on top of the class
 
     bool ravelable() const
     {
@@ -483,6 +489,7 @@ public:
     // Returns the pointer to the data after the contained buffer
     // Note: this is not the data()+size() pointer, it takes the outer
     // stride into account
+    template< typename = EnableIf< !IsConst<ScalType>() > >
     ScalType* next_data()
     {
         int outer = outerDim();
@@ -511,14 +518,6 @@ public:
 
         return res;
     }
-
-    // Returns a pointer to the beginning of the mapped data
-    ScalType* data()
-    { return data_; }
-
-    Const<ScalType>* data() const
-    { return data_; }
-
 
     bool empty() const
     { return data_ == NULL; }
@@ -556,34 +555,24 @@ public:
                 Eigen::Unaligned>(data_, size());
     }
 
-    // Returns the shape and stride for a certain dimension
-    int shape(int i) const
-    {
-        assert(i < dim && "Shape index out of dim");
-        return shape_[i];
-    }
-    int stride(int i) const
-    {
-        assert(i < dim && "Stride index out of dim");
-        return stride_[i];
-    }
-
     // Contracts ContractDim with ContractDim+1 dimensions
-    template< int ContractDim >
-    TensorMap<ScalType,dim-1,0>
+    //TODO Check it, and put it on the top
+    /*
+    template< int contract_dim >
+    TensorMap<ScalType,dim-1>
     contract()
     {
-        assert( stride_[ContractDim] == stride_[ContractDim+1] * shape_[ContractDim+1]
+        assert( stride_[contract_dim] == stride_[contract_dim+1] * shape_[contract_dim+1]
                 && "Cannot be trivially contracted" );
-        return TensorMap_Dim<ScalType,dim-1,0>( Contraction<ContractDim>(), *this );
+        return TensorMap_Dim<ScalType,dim-1,0>( Contraction<contract_dim>(), *this );
     }
-    template< int ContractDim >
-    TensorMap<Const<ScalType>,dim-1,0>
+    template< int contract_dim >
+    TensorMap<Const<ScalType>,dim-1>
     contract() const
     {
-        assert( stride_[ContractDim] == stride_[ContractDim+1] * shape_[ContractDim+1]
+        assert( stride_[contract_dim] == stride_[contract_dim+1] * shape_[contract_dim+1]
                 && "Cannot be trivially contracted" );
-        return TensorMap_Dim<Const<ScalType>,dim-1,0>( Contraction<ContractDim>(), *this );
+        return TensorMap_Dim<Const<ScalType>,dim-1,0>( Contraction<contract_dim>(), *this );
     }
 
     TensorMap<ScalType,dim-1> contractFirst()
@@ -595,62 +584,97 @@ public:
     { return contract<dim-2>(); }
     TensorMap<Const<ScalType>,dim-1> contractLast() const
     { return contract<dim-2>(); }
+    */
 };
 
 // ----- TensorMapBase -----
-//
+
 template< typename Derived >
-class TensorMapBase : public TensorBase<Derived>
+class TensorMapBase : public TensorOperator<Derived>
 {
-    typedef TensorBase<Derived> Base;
+    typedef TensorOperator<Derived> Base;
 
     using Base::Base;
+    using Base::dim;
+    using Base::owns;
+    using typename Base::ScalType;
+    using typename Base::MatrixRef;
+    using typename Base::VectorRef;
 
 public:
-    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
-    TensorMapBase( ScalType *data, const DynInnerStride &inner_stride, Dimensions ... dimensions )
-     : data_(data)
+    // Default constructor
+    TensorMapBase()
     {
-        stride_[dim-1] = inner_stride.inner();
-        init_from_shape<0>(dimensions...);
+        Base::data_ = NULL;
+        for ( int& s : Base::stride_ )
+            s = 0;
+        for ( int& s : Base::shape_ )
+            s = 0;
     }
 
-    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions) == dim> >
-    inline TensorMapBase(ScalType *data, Dimensions ... dimensions)
-     : TensorMapBase( data, DynInnerStride(1), dimensions... )
-    {}
+    // You can specify the inner stride...
+    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
+    TensorMapBase<Derived>( ScalType* data, const InnerStride& inner_stride, Dimensions ... dimensions )
+    {
+        std::cout << sizeof...(Dimensions) << " == " << dim << std::endl;
+        std::cout << "Inner stride = " << inner_stride.inner << std::endl;
+        Base::data_ = NULL;
+        Base::stride_[dim-1] = inner_stride.inner;
+        Base::template init_sns_from_shape<0>(dimensions...);
+    }
 
+    // ... or let it to 1 in the default case
+    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
+    inline TensorMapBase( ScalType* data, Dimensions ... dimensions )
+     : TensorMapBase( data, InnerStride(1), dimensions... )
+    {
+        std::cout << "Default inner stride" << std::endl;
+    }
+
+    // You can also specify both shape and stride
     template< typename ShapeType, typename StrideType >
     TensorMapBase( ScalType* data,
                    const Shape<dim,ShapeType>& shape,
-                   const Stride<dim,StrideShape>& stride )
+                   const Stride<dim,StrideType>& stride )
     {
-        data_ = data;
+        Base::data_ = data;
         for ( int i = 0 ; i < dim ; ++i )
         {
-            shape_[i] = shape[i];
-            stride_[i] = stride[i];
+            Base::shape_[i] = shape[i];
+            Base::stride_[i] = stride[i];
         }
     }
 
+    template< typename OtherDerived, typename = EnableIf<
+        ConstCompatible< typename Traits<OtherDerived>::ScalType, ScalType >()
+        && Traits<Derived>::dim == dim > >
+    TensorMapBase( ConstAs< ScalType,TensorBase< OtherDerived > >& other )
+    {
+        Base::data_ = other.data_;
+        std::copy( other.stride_, other.stride_ + dim, Base::stride_ );
+        std::copy( other.shape_, other.shape_ + dim, Base::shape_ );
+    }
+
+    /* UNCOMMENT ME
     // This is used to allocate the tensor-map through a BufMap
     template< typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions) == dim > >
     TensorMapBase( DxyzUtils::BufMap< NonConst<ScalType> >& bufmap, Dimensions ... dimensions )
      : TensorMapBase( bufmap.ptr(total_size(dimensions...)), dimensions... )
     {}
+    */
 
     // This can take inner and outer strides into account (like blocks)
     template<typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions) == dim > >
-    TensorMapBase(EigenRef&& mat, Dimensions ... dimensions)
+    TensorMapBase( MatrixRef&& mat, Dimensions ... dimensions )
     {
-        typedef typename EigenRef::Index Index;
+        typedef typename MatrixRef::Index Index;
 
-        data_ = mat.data();
+        Base::data_ = mat.data();
         Index shape[] = { mat.rows(), mat.cols() };
         Index stride[] = { mat.outerStride(), mat.innerStride() };
-        init_reshape_tensor<dim-1,1,2,Index,Index>(
+        Base::template init_sns_reshape_tensor<dim-1,1,2,Index,Index>(
                 Shape<2,Index>( shape ),
                 Stride<2,Index>( stride ),
                 dimensions... );
@@ -658,7 +682,7 @@ public:
 };
 
 // ----------------------------------------------------------------------------------------
-
+/*
 // This is the final class, that implements operator() and provides
 // Eigen operations on dimensions 1 and 2
 template< typename ScalType, int dim, int current_dim >
@@ -1087,5 +1111,68 @@ public:
                 Eigen::OuterStride<>(this->stride_[0]) );
     }
 };
+*/
+
+template< typename Derived >
+class TensorDim : public
+    std::conditional<
+        Traits<Derived>::dim == 1,
+        TensorBase_VectorLike< Derived >,
+        std::conditional<
+            Traits<Derived>::dim == 2,
+            TensorBase_MatrixLike< Derived >,
+            TensorBase< Derived > > >
+{
+    typedef std::conditional<
+        Traits<Derived>::dim == 1,
+        TensorBase_VectorLike< Derived >,
+        std::conditional<
+            Traits<Derived>::dim == 2,
+            TensorBase_MatrixLike< Derived >,
+            TensorBase< Derived > > >
+        Base;
+
+    using Base::Base;
+    using Base::dim;
+    using Base::owns;
+    using typename Base::ScalType;
+};
+
+template< typename Derived, int _dim, int _current_dim >
+class TensorOperator :
+    public std::conditional<
+        _dim == _current_dim,
+        TensorDim< Derived >,
+        TensorOperator< Derived, _dim, _current_dim+1 > >
+{
+    static_assert( _current_dim >= 0 && _current_dim <= _dim );
+
+    typedef std::conditional<
+        dim == current_dim,
+        TensorDim< Derived >,
+        TensorOperator< Derived, _dim, _current_dim+1 > >
+        Base;
+
+    using Base::Base;
+    using Base::dim;
+    using Base::current_dim;
+    using Base::owns;
+    using typename Base::ScalType;
+};
+
+template< typename _ScalType, int _dim >
+class TensorMap :
+    public TensorMapBase< TensorMap<_ScalType,_dim> >
+{
+    typedef TensorMapBase< TensorMap<_ScalType,_dim> > Base;
+
+    using Base::Base;
+    using Base::dim;
+    using Base::owns;
+    using typename Base::ScalType;
+};
 
 } // namespace TensorMapTools
+
+template< typename ScalType, int dim >
+using TensorMap = TensorMapTools::TensorMap<ScalType,dim,0>;
