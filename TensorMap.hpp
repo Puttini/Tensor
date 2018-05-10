@@ -1190,6 +1190,8 @@ public:
     using Base::dim;
     using Base::owns;
     using typename Base::ScalType;
+    using typename Base::MatrixRef;
+    using typename Base::VectorRef;
     using Base::derived;
 
     inline int shape( int s ) const
@@ -1333,11 +1335,14 @@ public:
     typedef TensorBase_MatrixLike<Derived> AttrBase;
 
     friend Base;
+    friend AttrBase;
 
     using Base::Base;
     using Base::dim;
     using Base::owns;
     using typename Base::ScalType;
+    using typename Base::MatrixRef;
+    using typename Base::VectorRef;
     using Base::derived;
     using AttrBase::data;
     using AttrBase::shape;
@@ -1365,7 +1370,6 @@ class TensorOperator :
 public:
     typedef TensorOperator< Derived, _dim, _current_dim+1 > Base;
     friend Base;
-
     using Base::Base;
     using Base::dim;
     using Base::owns;
@@ -1389,7 +1393,7 @@ class TensorOperator< Derived, _dim, _dim > :
 {
 public:
     typedef TensorDim<Derived> Base;
-
+    friend Base;
     using Base::Base;
     using Base::dim;
     using Base::owns;
@@ -1400,6 +1404,11 @@ public:
     using Base::data;
     using Base::shape;
     using Base::stride;
+
+protected:
+    using Base::set_data;
+    using Base::set_shape;
+    using Base::set_stride;
 };
 
 // ----- TensorMapBase -----
@@ -1410,7 +1419,6 @@ class TensorMapBase : public TensorOperator<Derived>
 public:
     typedef TensorOperator<Derived> Base;
     friend Base;
-
     using Base::Base;
     using Base::dim;
     using Base::owns;
@@ -1422,6 +1430,12 @@ public:
     using Base::shape;
     using Base::stride;
 
+protected:
+    using Base::set_data;
+    using Base::set_shape;
+    using Base::set_stride;
+
+public:
     // Default constructor
     TensorMapBase()
     {
@@ -1514,17 +1528,26 @@ class TensorMap :
 {
 public:
     typedef TensorMapBase<TensorMap> Base;
+    friend Base;
+
+    typedef TensorBase<TensorMap> OtherBase;
+    friend OtherBase;
 
     using Base::Base;
     using Base::dim;
     using Base::owns;
     using typename Base::ScalType;
-    using Base::MatrixRef;
-    using Base::VectorRef;
-
+    using typename Base::MatrixRef;
+    using typename Base::VectorRef;
+    using Base::derived;
     using Base::data;
     using Base::shape;
     using Base::stride;
+
+protected:
+    using Base::set_data;
+    using Base::set_shape;
+    using Base::set_stride;
 };
 
 // ----- Method implementations -----
