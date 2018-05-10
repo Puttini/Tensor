@@ -508,32 +508,12 @@ public:
     template< int new_dim, typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions)==new_dim && !IsConst<ScalType>() > >
     TensorMap< ScalType, new_dim >
-    reshape( Dimensions ... dimensions )
-    {
-        const Derived& d = derived();
-        TensorMap< ScalType, new_dim > new_tensor( EmptyConstructor() );
-        new_tensor.data() = d.data();
-        new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
-                d.shape(), d.stride(),
-                1, 1,
-                dimensions... );
-        return new_tensor;
-    }
+    reshape( Dimensions ... dimensions );
 
     template< int new_dim, typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions)==new_dim > >
     TensorMap< Const<ScalType>, new_dim >
-    reshape( Dimensions ... dimensions ) const
-    {
-        const Derived& d = derived();
-        TensorMap< Const<ScalType>, new_dim > new_tensor( EmptyConstructor() );
-        new_tensor.data() = d.data();
-        new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
-                d.shape(), d.stride(),
-                1, 1,
-                dimensions... );
-        return new_tensor;
-    }
+    reshape( Dimensions ... dimensions ) const;
 
     // You can omit the new dimension
     template< typename ... Dimensions, typename Subst = ScalType >
@@ -1546,6 +1526,38 @@ public:
     using Base::shape;
     using Base::stride;
 };
+
+// ----- Method implementations -----
+
+template< typename Derived >
+template< int new_dim, typename ... Dimensions, typename >
+TensorMap< typename TensorBase<Derived>::ScalType, new_dim >
+TensorBase<Derived>::reshape( Dimensions ... dimensions )
+{
+    const Derived& d = derived();
+    TensorMap< ScalType, new_dim > new_tensor( EmptyConstructor() );
+    new_tensor.data() = d.data();
+    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+            d.shape(), d.stride(),
+            1, 1,
+            dimensions... );
+    return new_tensor;
+}
+
+template< typename Derived >
+template< int new_dim, typename ... Dimensions, typename >
+TensorMap< Const<typename TensorBase<Derived>::ScalType>, new_dim >
+TensorBase<Derived>::reshape( Dimensions ... dimensions ) const
+{
+    const Derived& d = derived();
+    TensorMap< Const<ScalType>, new_dim > new_tensor( EmptyConstructor() );
+    new_tensor.data() = d.data();
+    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+            d.shape(), d.stride(),
+            1, 1,
+            dimensions... );
+    return new_tensor;
+}
 
 } // namespace TensorMapTools
 
