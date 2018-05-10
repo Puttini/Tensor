@@ -510,13 +510,14 @@ public:
     TensorMap< ScalType, new_dim >
     reshape( Dimensions ... dimensions )
     {
-        TensorMap< ScalType, new_dim > t( EmptyConstructor() );
-        t.derived().set_data( derived().data() );
-        t.template init_sns_reshape_tensor<new_dim-1,dim-1>(
-                derived().shape(), derived().stride(),
+        const Derived& d = derived();
+        TensorMap< ScalType, new_dim > new_tensor( EmptyConstructor() );
+        new_tensor.data() = d.data();
+        new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+                d.shape(), d.stride(),
                 1, 1,
                 dimensions... );
-        return t;
+        return new_tensor;
     }
 
     template< int new_dim, typename ... Dimensions,
@@ -525,21 +526,19 @@ public:
     reshape( Dimensions ... dimensions ) const
     {
         const Derived& d = derived();
-
-        TensorMap< Const<ScalType>, new_dim > t( EmptyConstructor() );
-        t.derived().data() = d.data();
-        t.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+        TensorMap< Const<ScalType>, new_dim > new_tensor( EmptyConstructor() );
+        new_tensor.data() = d.data();
+        new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
                 d.shape(), d.stride(),
                 1, 1,
                 dimensions... );
-        return t;
+        return new_tensor;
     }
 
     // You can omit the new dimension
-    template< typename ... Dimensions,
-        typename = EnableIf< !IsConst<ScalType>() > >
+    template< typename ... Dimensions, typename Subst = ScalType >
     inline TensorMap< ScalType, sizeof...(Dimensions) >
-    reshape( Dimensions ... dimensions )
+    reshape( Dimensions ... dimensions, EnableIf< !IsConst<Subst>() > = {}  )
     { return reshape< sizeof...(Dimensions), Dimensions... >( dimensions... ); }
 
     template< typename ... Dimensions >
@@ -655,8 +654,8 @@ public:
 
     // Returns the pointer to the data after the contained buffer
     // Note: this is not the data()+size() pointer, it takes the strides into account
-    template< typename = EnableIf< !IsConst<ScalType>() > >
-    inline ScalType* next_data()
+    template< typename Subst = ScalType >
+    inline ScalType* next_data( EnableIf< !IsConst<Subst>() > = {} )
     { return derived().data() + maxMemorySize(); }
 
     inline Const<ScalType>* next_data() const
@@ -1204,7 +1203,8 @@ public:
 template< typename Derived, int _dim = Traits<Derived>::dim >
 class TensorDim : public TensorBase<Derived>
 {
-    typedef TensorBase<TensorDim> Base;
+public:
+    typedef TensorBase<Derived> Base;
     friend Base;
     using Base::Base;
     using Base::dim;
@@ -1212,24 +1212,22 @@ class TensorDim : public TensorBase<Derived>
     using typename Base::ScalType;
     using Base::derived;
 
-public:
     inline int shape( int s ) const
     { return m_shape[s]; }
 
     inline int stride( int s ) const
     { return m_stride[s]; }
 
-    ShapeMap<dim,int> shape() const
+    inline ShapeMap<dim,int> shape() const
     { return { m_shape }; }
 
-    StrideMap<dim,int> stride() const
+    inline StrideMap<dim,int> stride() const
     { return { m_stride }; }
 
-    template< typename = EnableIf<!IsConst<ScalType>()> >
     inline ScalType* data()
     { return m_data; }
 
-    Const<ScalType>* data() const
+    inline Const<ScalType>* data() const
     { return m_data; }
 
 
@@ -1318,12 +1316,14 @@ public:
     }
 
 protected:
+    typedef Eigen::internal::variable_if_dynamic<typename Base::Index, Eigen::Dynamic> AttrType;
+
     inline void set_shape( int s, int value )
     {
         if ( s == 0 )
-            Eigen::MapBase<Base>::m_rows = value;
+            const_cast< AttrType* >(&(Eigen::MapBase<Base>::m_rows))->setValue(value);
         else if ( s == 1 )
-            Eigen::MapBase<Base>::m_cols = value;
+            const_cast< AttrType* >(&(Eigen::MapBase<Base>::m_cols))->setValue(value);
         assert( "Invalid requested shape" );
     }
 
@@ -1352,6 +1352,8 @@ public:
     typedef TensorBase<Derived> Base;
     typedef TensorBase_MatrixLike<Derived> AttrBase;
 
+    friend Base;
+
     using Base::Base;
     using Base::dim;
     using Base::owns;
@@ -1360,6 +1362,11 @@ public:
     using AttrBase::data;
     using AttrBase::shape;
     using AttrBase::stride;
+
+protected:
+    using AttrBase::set_data;
+    using AttrBase::set_shape;
+    using AttrBase::set_stride;
 };
 
 // ----- TensorDim<1> -----
@@ -1377,6 +1384,7 @@ class TensorOperator :
 
 public:
     typedef TensorOperator< Derived, _dim, _current_dim+1 > Base;
+    friend Base;
 
     using Base::Base;
     using Base::dim;
@@ -1388,6 +1396,11 @@ public:
     using Base::data;
     using Base::shape;
     using Base::stride;
+
+protected:
+    using Base::set_data;
+    using Base::set_shape;
+    using Base::set_stride;
 };
 
 template< typename Derived, int _dim >
