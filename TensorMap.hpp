@@ -391,7 +391,7 @@ protected:
     {
         Derived& d = derived();
         d.set_shape( s, dimension );
-        init_sns_from_shape<d+1>( other_dimensions... );
+        init_sns_from_shape<s+1>( other_dimensions... );
         d.set_stride( dimension, d.shape(dimension + 1) * d.stride(dimension + 1) );
     }
     template< int s >
@@ -672,7 +672,7 @@ public:
     }
 
     inline bool empty() const
-    { return derived().data() == NULL; }
+    { return derived().data() == nullptr; }
 
     // Returns the dimension whose stride is the biggest
     int outerDim() const
@@ -1432,7 +1432,7 @@ public:
     // Default constructor
     TensorMapBase()
     {
-        derived().set_data( NULL );
+        derived().set_data( nullptr );
         for ( int s = 0 ; s < dim ; ++s )
         {
             derived().set_shape(s,0);
@@ -1446,8 +1446,8 @@ public:
     {
         std::cout << sizeof...(Dimensions) << " == " << dim << std::endl;
         std::cout << "Inner stride = " << inner_stride.inner << std::endl;
-        derived().set_data( NULL );
-        derived().set_stride( dim-1 ) = inner_stride.inner;
+        derived().set_data( nullptr );
+        derived().set_stride( dim-1, inner_stride.inner );
         Base::template init_sns_from_shape<0>(dimensions...);
     }
 
