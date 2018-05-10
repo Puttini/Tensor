@@ -54,7 +54,7 @@ struct EmptyConstructor {};
 template< int n >
 struct NthOfPack
 {
-    // This is used to determine the type without auto
+    // This is used to determine the type without auto (C++14)
     // Cannot be static, unfortunately
     template< typename Arg0, typename ... Args >
     typename std::result_of< NthOfPack<n-1>(Args&&...) >::type&& operator()( Arg0&&, Args&& ... args )
@@ -93,45 +93,235 @@ constexpr typename std::result_of< NthOfPack<sizeof...(Pack)-1>(Pack&&...) >::ty
 first_of_pack( Pack&& ... pack )
 { return std::forward<typename std::result_of< NthOfPack<sizeof...(Pack)-1>(Pack&&...) >::type>(NthOfPack<sizeof...(Pack)-1>::nth(pack...)); }
 
-// ----- Stride and shape tool structures -----
+// ----- Forward declarations of final types -----
 
-template< int dim, typename Integer >
+// Tensor types
+template< typename ScalType, int dim >
+class TensorOwn;
+
+template< typename ScalType, int dim >
+class TensorMap;
+
+// Shape types
+template< int dim, typename Integer = int >
+class ShapeMap;
+
+template< int dim, typename Integer = int >
+class ShapeOwn;
+
+// Stride types
+template< int dim, typename Integer = int >
+class StrideMap;
+
+template< int dim, typename Integer = int >
+class StrideOwn;
+
+// ----- Traits -----
+
+template< typename Type >
+struct Traits;
+
+// Tensor traits
+template< typename _ScalType, int _dim >
+struct Traits< TensorMap<_ScalType,_dim> >
+{
+    typedef _ScalType ScalType;
+    static constexpr int dim = _dim;
+    static constexpr bool owns = false;
+};
+
+template< typename _ScalType, int _dim >
+struct Traits< TensorOwn<_ScalType,_dim> >
+{
+    typedef _ScalType ScalType;
+    static constexpr int dim = _dim;
+    static constexpr bool owns = true;
+};
+
+// Shape traits
+template< int _dim, typename _Integer >
+struct Traits< ShapeMap<_dim,_Integer> >
+{
+    typedef _Integer Integer;
+    static constexpr int dim = _dim;
+    static constexpr bool owns = false;
+};
+
+template< int _dim, typename _Integer >
+struct Traits< ShapeOwn<_dim,_Integer> >
+{
+    typedef _Integer Integer;
+    static constexpr int dim = _dim;
+    static constexpr bool owns = true;
+};
+
+// Stride traits
+template< int _dim, typename _Integer >
+struct Traits< StrideMap<_dim,_Integer> >
+{
+    typedef _Integer Integer;
+    static constexpr int dim = _dim;
+    static constexpr bool owns = false;
+};
+
+template< int _dim, typename _Integer >
+struct Traits< StrideOwn<_dim,_Integer> >
+{
+    typedef _Integer Integer;
+    static constexpr int dim = _dim;
+    static constexpr bool owns = true;
+};
+
+// ----- Shape tool structures -----
+
+template< typename Derived >
 struct Shape
 {
-    const Integer* shape;
+    static constexpr int dim = Traits<Derived>::dim;
+    static constexpr bool owns = Traits<Derived>::owns;
 
-    Shape( const Integer* shape )
-     : shape(shape)
-    {}
+    Derived& derived() { return *static_cast<Derived*>(this); }
+    const Derived& derived() const { return *static_cast<const Derived*>(this); }
 
-    template< int d, typename = EnableIf<(d<dim-1)> >
+    template< int s = 0, typename = EnableIf<(d<dim-1)> >
     inline int size() const
-    { return shape[d]*shape[d-1]; }
+    { return derived().get(d)*size(d+1); }
+
+    template< int s = 0, typename = EnableIf<d==dim-1> >
+    inline int size() const
+    { return derived().get(s-1); }
 
     inline Integer operator[]( int i ) const
-    {
-        assert( i < dim );
-        return shape[i];
-    }
+    { return derived().get(i); }
 };
 
 template< int dim, typename Integer >
+struct ShapeMap : public Shape<ShapeMap>
+{
+    typedef Shape<ShapeOwn> Base;
+    using typename Base::Integer;
+    using Base::dim;
+
+    const Integer* shape;
+
+    explicit ShapeMap( const Integer* shape )
+     : shape(shape)
+    {}
+
+    Integer get( int i )
+    { return shape[i]; }
+};
+
+template< int dim, typename Integer >
+struct ShapeOwn : public Shape<ShapeOwn>
+{
+    typedef Shape<ShapeOwn> Base;
+    using typename Base::Integer;
+    using Base::dim;
+
+    Integer[dim] shape;
+
+    ShapeOwn() = default;
+
+    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
+    explicit ShapeOwn( Dimensions ... dimensions )
+    {
+        init<0>( dimensions... );
+    }
+
+    template< int s, typename ... OtherDimensions >
+    void init( int dimension, OtherDimensions ... other_dimensions )
+    {
+        shape[s] = dimension;
+        init<s+1>( other_dimensions... );
+    }
+
+    template< int s >
+    void init()
+    { }
+
+    inline Integer get( int i )
+    { return shape[i]; }
+};
+
+// ----- Stride tool structures -----
+
+template< typename Derived >
 struct Stride
 {
+    static constexpr int dim = Traits<Derived>::dim;
+    static constexpr bool owns = Traits<Derived>::owns;
+
+    Derived& derived() { return *static_cast<Derived*>(this); }
+    const Derived& derived() const { return *static_cast<const Derived*>(this); }
+
+    inline Integer innerStride() const
+    { return derived().get(dim-1); }
+
+    inline Integer operator[]( int i ) const
+    { return derived().get(i); }
+};
+
+template< int _dim, typename _Integer >
+struct StrideMap : public Stride<StrideMap>
+{
+    typedef Stride<StrideOwn> Base;
+    using typename Base::Integer;
+    using Base::dim;
+
     const Integer* stride;
 
-    Stride( const Integer* stride )
+    explicit StrideMap( const Integer* stride )
      : stride(stride)
     {}
 
-    inline Integer innerStride() const
-    { return stride[dim-1]; }
+    Integer get( int i )
+    { return stride[i]; }
+};
 
-    inline Integer operator[]( int i ) const
+template< int _dim, typename _Integer >
+struct StrideOwn : public Stride<StrideOwn>
+{
+    typedef Stride<StrideOwn> Base;
+    using typename Base::Integer;
+    using Base::dim;
+
+    Integer[dim] stride;
+
+    StrideOwn() = default;
+
+    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
+    explicit StrideOwn( Dimensions ... dimensions )
     {
-        assert( i < dim );
-        return stride[i];
+        init<0>( dimensions... );
     }
+
+    template< typename = EnableIf<dim==2> >
+    StrideOwn( const DynStride& other )
+    {
+        stride[0] = other.outerStride();
+        stride[1] = other.innerStride();
+    }
+
+    template< typename = EnableIf<dim==1> >
+    StrideOwn( const DynInnerStride& other )
+    {
+        stride[0] = other.innerStride();
+    }
+
+    template< int s, typename ... OtherDimensions >
+    void init( int dimension, OtherDimensions ... other_dimensions )
+    {
+        stride[s] = dimension;
+        init<s+1>( other_dimensions... );
+    }
+
+    template< int s >
+    void init()
+    { }
+
+    Integer get( int i )
+    { return stride[i]; }
 };
 
 struct InnerStride
@@ -139,6 +329,10 @@ struct InnerStride
     int inner;
     explicit InnerStride( int i )
      : inner(i)
+    {}
+
+    InnerStride( const DynInnerStride& other )
+     : inner( other.innerStride() )
     {}
 };
 
@@ -156,35 +350,6 @@ using MatrixCM = Eigen::Matrix<ScalType,rows,cols,Eigen::ColMajor>;
 
 template< typename ScalType, int size = Eigen::Dynamic >
 using Vector = MatrixCM<ScalType,size,1>;
-
-// ----- Forward declarations -----
-
-template< typename ScalType, int dim >
-class TensorOwn;
-
-template< typename ScalType, int dim >
-class TensorMap;
-
-// ----- Traits -----
-
-template< typename Type >
-struct Traits;
-
-template< typename _ScalType, int _dim >
-struct Traits< TensorMap<_ScalType,_dim> >
-{
-    typedef _ScalType ScalType;
-    static constexpr int dim = _dim;
-    static constexpr bool owns = false;
-};
-
-template< typename _ScalType, int _dim >
-struct Traits< TensorOwn<_ScalType,_dim> >
-{
-    typedef _ScalType ScalType;
-    static constexpr int dim = _dim;
-    static constexpr bool owns = true;
-};
 
 // ----- TensorBase -----
 
@@ -211,6 +376,7 @@ public:
 
     // --- Shape/Stride/Data accessors ---
 
+    /* In other classes !!
     Stride<dim,int> stride() const
     { return { stride_ }; }
 
@@ -230,34 +396,36 @@ public:
     Const<ScalType>* data() const
     { return data_; }
 
+    ScalType* data_;
+    int shape_[dim];
+    int stride_[dim]; */
+
 protected:
     TensorBase() = default;
     TensorBase( EmptyConstructor ) {}
 
-    ScalType* data_;
-    int shape_[dim];
-    int stride_[dim];
-
     // Used to initialize strides and shapes in constructors
     // (inner stride must be specified before calling this)
-    template< int d, typename ... OtherDimensions >
-    inline void init_sns_from_shape( int s, OtherDimensions ... other_dimensions )
+    template< int s, typename ... OtherDimensions >
+    inline void init_sns_from_shape( int dimension, OtherDimensions ... other_dimensions )
     {
-        shape_[d] = s;
+        Derived& d = derived();
+        d.set_shape( s, dimension );
         init_sns_from_shape<d+1>( other_dimensions... );
-        stride_[d] = shape_[d + 1] * stride_[d + 1];
+        d.set_stride( dimension, d.shape(dimension + 1) * d.stride(dimension + 1);
     }
     template< int s >
-    inline void init_sns_from_shape( int d )
+    inline void init_sns_from_shape( int dimension )
     {
-        shape_[s] = d;
+        Derived& d = derived();
+        d.set_shape( s, dimension );
     }
 
     // Give the total shape of the tensor
     template< typename ... OtherDimensions >
-    inline static int total_size( int s, OtherDimensions ... other_dimensions )
+    inline static int total_size( int dimension, OtherDimensions ... other_dimensions )
     {
-        return s*total_size( other_dimensions... );
+        return dimension*total_size( other_dimensions... );
     }
     inline static int total_size()
     { return 1; }
@@ -266,18 +434,24 @@ protected:
     // It can be a pybind array, an Eigen matrix, another Tensor, or whatever
     // It has to be recursive to statically access the members of Dimensions...
     template< int s, int other_s,
-        int other_dim, typename ShapeType, typename StrideType,
+        int other_dim, typename ShapeDerived, typename StrideDerived,
         typename ... Dimensions, typename = EnableIf<(s>=0 && other_s>=0)> >
-    inline void init_sns_reshape_tensor( const Shape<other_dim,ShapeType>& other_shape,
-                              const Stride<other_dim,StrideType>& other_stride,
-                              int current_total_size,
-                              int other_current_total_size,
-                              Dimensions ... dimensions )
+    void init_sns_reshape_tensor(
+            const Shape<ShapeDerived>& other_shape,
+            const Stride<StrideDerived>& other_stride,
+            int current_total_size,
+            int other_current_total_size,
+            Dimensions ... dimensions )
     {
+        static_assert(
+                Traits<ShapeDerived>::dim == dim && Traits<StrideDerived>::dim == dim,
+                "Invalid stride/shape dimension" );
+
         int new_total_size = current_total_size*nth_of_pack<s>(dimensions...);
         int other_new_total_size = other_current_total_size*other_shape[other_s];
 
-        shape_[s] = nth_of_pack<s>(dimensions...);
+        Derived& d = derived();
+        d.set_shape( s, nth_of_pack<s>(dimensions...) );
 
         if ( new_total_size == other_new_total_size )
         {
@@ -324,9 +498,9 @@ protected:
         else // new_total_size < other_new_total_size
         {
             // Split this dimension. The strides have no constraint
-            stride_[s] = (s == dim-1)
-                         ? other_stride.innerStride()
-                         : stride_[s+1] * shape_[s+1];
+            d.set_stride( s, (s == dim-1)
+                             ? other_stride.innerStride()
+                             : stride_[s+1] * shape_[s+1] );
 
             init_sns_reshape_tensor<s-1,other_s,other_dim,ShapeType,StrideType>(
                     other_shape, other_stride,
@@ -336,15 +510,16 @@ protected:
         }
     }
 
-    // Fortunately we can overload the base case of the function by using 'const'
+    // Fortunately we can overload the base case of this function by using 'const'
     template< int s, int other_s, int other_dim,
-        typename ShapeType, typename StrideType,
+        typename ShapeDerived, typename StrideDerived,
         typename ... Dimensions, typename = EnableIf<(s<0||other_s<0)> >
-    inline void init_sns_reshape_tensor( const Shape<other_dim,ShapeType>& other_shape,
-                              const Stride<other_dim,StrideType>& other_stride,
-                              int current_total_size,
-                              int other_current_total_size,
-                              Dimensions ... dimensions ) const
+    inline void init_sns_reshape_tensor(
+            const Shape<ShapeDerived>& other_shape,
+            const Stride<StrideDerived>& other_stride,
+            int current_total_size,
+            int other_current_total_size,
+            Dimensions ... dimensions ) const
     {}
 
 public:
@@ -413,21 +588,31 @@ protected:
     }
     */
 
-    template< int contract_dim, typename ShapeType, typename StrideType,
+    template< int contract_dim, typename ShapeDerived, typename StrideDerived,
         typename = EnableIf< (contract_dim<dim) > >
     void init_sns_from_contraction(
-            const Shape<dim+1,ShapeType>& shape,
-            const Stride<dim+1,StrideType>& stride )
+            const Shape<ShapeDerived>& initial_shape,
+            const Stride<StrideDerived>& initial_stride )
     {
-        assert( stride[contract_dim] == stride[contract_dim+1] * shape[contract_dim+1]
+        static_assert( ShapeDerived::dim == dim+1 && StrideDerived::dim == dim+1,
+                "Invalid shape/stride" );
+
+        assert( initial_stride[contract_dim] ==
+                initial_stride[contract_dim+1] * initial_shape[contract_dim+1]
                 && "Dimension cannot be contracted" );
 
-        std::copy(stride.stride, stride.stride + contract_dim, stride_);
-        std::copy(stride.stride + contract_dim + 1, stride.stride + dim + 1, stride_ + contract_dim);
+        Derived& d = derived();
 
-        std::copy(shape.shape, shape.shape + contract_dim, shape_);
-        shape_[contract_dim] = shape.shape[contract_dim] * shape.shape[contract_dim+1];
-        std::copy(shape.shape + contract_dim + 2, shape.shape + dim + 1, shape_ + contract_dim+1);
+        for ( int s = 0 ; s < contract_dim ; ++s )
+            d.set_stride( s, initial_stride[s] );
+        for ( int s = contract_dim ; s < dim ; ++s )
+            d.set_stride( s, initial_stride[s+1] );
+
+        for ( int s = 0 ; s < contract_dim ; ++s )
+            d.set_shape( s, initial_shape[s] );
+        d.set_shape( contract_dim, initial_shape[contract_dim] * initial_shape[contract_dim+1] );
+        for ( int s = contract_dim+1, s < dim ; ++s )
+            d.set_shape( s, initial_shape[s+1] );
     }
 
 public:
@@ -466,13 +651,13 @@ public:
 
 
     // --- Utility methods ---
-    //TODO Put them on top of the class
 
     bool ravelable() const
     {
+        const Derived& d = derived();
         for (int i = 0; i < dim - 1; ++i)
         {
-            if (stride_[i] != shape_[i + 1] * stride_[i + 1])
+            if ( d.stride(i) != d.shape(i+1) * d.stride(i+1) )
                 return false;
         }
         return true;
@@ -482,46 +667,53 @@ public:
     {
         int s = 1;
         for (int i = 0; i < dim; ++i)
-            s *= shape_[i];
+            s *= d.shape(i);
         return s;
     }
 
     // Returns the pointer to the data after the contained buffer
-    // Note: this is not the data()+size() pointer, it takes the outer
-    // stride into account
+    // Note: this is not the data()+size() pointer, it takes the strides into account
     template< typename = EnableIf< !IsConst<ScalType>() > >
-    ScalType* next_data()
+    inline ScalType* next_data()
+    { return derived().data() + maxMemorySize(); }
+
+    inline Const<ScalType>* next_data() const
+    { return derived().data() + maxMemorySize(); }
+
+    int maxMemorySize() const
     {
-        int outer = outerDim();
-        return data_ + stride_[outer]*shape_[outer];
+        const Derived& d = derived();
+        int res = 0;
+        for ( int s = 0 ; s < dim ; ++s )
+            res = std::max( res, d.stride(s)*d.shape(s) );
+        return s;
     }
 
-    Const<ScalType>* next_data() const
-    {
-        int outer = outerDim();
-        return data_ + stride_[outer]*shape_[outer];
-    }
+    inline bool empty() const
+    { return derived().data() == NULL; }
 
     // Returns the dimension whose stride is the biggest
     int outerDim() const
     {
         int biggestStride = 0;
         int res = 0;
+        const Derived& d = derived();
         for ( int i = 0 ; i < dim ; ++i )
         {
-            if ( stride_[i] > biggestStride )
+            int currentStride = d.stride(i);
+            if ( currentStride > biggestStride )
             {
-                biggestStride = stride_[i];
+                biggestStride = currentStride;
                 res = i;
             }
         }
-
         return res;
     }
 
-    bool empty() const
-    { return data_ == NULL; }
-
+    inline int innerStride() const
+    {
+        return derived().stride(dim-1);
+    }
 
     // Returns a Map of the corresponding col vector
     Eigen::Map< ConstAs<ScalType,Vector<NonConst<ScalType>>>, Eigen::Unaligned, DynInnerStride >
@@ -529,30 +721,33 @@ public:
     {
         assert( ravelable() && "Cannot be raveled" );
         return Eigen::Map<ConstAs<ScalType,Vector<NonConst<ScalType>>>,
-                Eigen::Unaligned, DynInnerStride>(data_, size(), DynInnerStride(stride_[dim - 1]));
+                Eigen::Unaligned, DynInnerStride>(data(), size(), DynInnerStride(stride_[dim - 1]));
     }
     Eigen::Map< const Vector<NonConst<ScalType>>, Eigen::Unaligned, DynInnerStride >
     dyn_ravel() const
     {
-        assert(ravelable() && "Cannot be raveled");
+        assert( ravelable() && "Cannot be raveled" );
         return Eigen::Map<const Vector<NonConst<ScalType>>,
-                Eigen::Unaligned, DynInnerStride>(data_, size(), DynInnerStride(stride_[dim - 1]));
+                Eigen::Unaligned, DynInnerStride>(
+                        derived().data(),
+                        size(),
+                        DynInnerStride( derived().stride(dim-1) ) );
     }
 
     // Returns a Map of the corresponding col vector, with an inner stride of 1
     Eigen::Map< ConstAs<ScalType,Vector<NonConst<ScalType>>>, Eigen::Unaligned >
     ravel()
     {
-        assert( stride_[dim-1] == 1 && ravelable() && "Cannot be raveled" );
+        assert( innerStride() == 1 && ravelable() && "Cannot be raveled" );
         return Eigen::Map<ConstAs<ScalType,Vector<NonConst<ScalType>>>,
-                Eigen::Unaligned>(data_, size());
+                Eigen::Unaligned>( derived().data(), size() );
     }
     Eigen::Map< const Vector<NonConst<ScalType>>, Eigen::Unaligned >
     ravel() const
     {
-        assert( stride_[dim-1] == 1 && ravelable() && "Cannot be raveled" );
+        assert( innerStride() == 1 && ravelable() && "Cannot be raveled" );
         return Eigen::Map<const Vector<NonConst<ScalType>>,
-                Eigen::Unaligned>(data_, size());
+                Eigen::Unaligned>( derived().data(), size() );
     }
 
     // Contracts ContractDim with ContractDim+1 dimensions
@@ -593,6 +788,7 @@ template< typename Derived >
 class TensorMapBase : public TensorOperator<Derived>
 {
     typedef TensorOperator<Derived> Base;
+    friend Base;
 
     using Base::Base;
     using Base::dim;
@@ -605,11 +801,12 @@ public:
     // Default constructor
     TensorMapBase()
     {
-        Base::data_ = NULL;
-        for ( int& s : Base::stride_ )
-            s = 0;
-        for ( int& s : Base::shape_ )
-            s = 0;
+        derived().set_data( NULL );
+        for ( int s = 0 ; s < dim ; ++s )
+        {
+            derived().set_shape(s,0);
+            derived().set_stride(s,0);
+        }
     }
 
     // You can specify the inner stride...
@@ -618,8 +815,8 @@ public:
     {
         std::cout << sizeof...(Dimensions) << " == " << dim << std::endl;
         std::cout << "Inner stride = " << inner_stride.inner << std::endl;
-        Base::data_ = NULL;
-        Base::stride_[dim-1] = inner_stride.inner;
+        derived().set_data( NULL );
+        derived().set_stride( dim-1 ) = inner_stride.inner;
         Base::template init_sns_from_shape<0>(dimensions...);
     }
 
@@ -632,16 +829,19 @@ public:
     }
 
     // You can also specify both shape and stride
-    template< typename ShapeType, typename StrideType >
+    template< typename ShapeDerived, typename StrideDerived,
+       typename = EnableIf<
+          Traits<ShapeDerived>::dim == dim
+          && Traits<StrideDerived>::dim == dim > >
     TensorMapBase( ScalType* data,
-                   const Shape<dim,ShapeType>& shape,
-                   const Stride<dim,StrideType>& stride )
+                   const Shape<ShapeDerived>& custom_shape,
+                   const Stride<StrideDerived>& custom_stride )
     {
-        Base::data_ = data;
-        for ( int i = 0 ; i < dim ; ++i )
+        derived().set_data( data );
+        for ( int s = 0 ; s < dim ; ++s )
         {
-            Base::shape_[i] = shape[i];
-            Base::stride_[i] = stride[i];
+            derived().set_shape( s, custom_shape[i] );
+            derived().set_stride( s, custom_stride[i] );
         }
     }
 
@@ -650,9 +850,12 @@ public:
         && Traits<Derived>::dim == dim > >
     TensorMapBase( ConstAs< ScalType,TensorBase< OtherDerived > >& other )
     {
-        Base::data_ = other.data_;
-        std::copy( other.stride_, other.stride_ + dim, Base::stride_ );
-        std::copy( other.shape_, other.shape_ + dim, Base::shape_ );
+        derived().set_data( other.derived().data() );
+        for ( int s = 0 ; s < dim ; ++s )
+        {
+            derived().set_shape( s, other.derived().shape(s) );
+            derived().set_stride( s, other.derived().stride(s) );
+        }
     }
 
     /* UNCOMMENT ME
@@ -671,14 +874,43 @@ public:
     {
         typedef typename MatrixRef::Index Index;
 
-        Base::data_ = mat.data();
-        Index shape[] = { mat.rows(), mat.cols() };
-        Index stride[] = { mat.outerStride(), mat.innerStride() };
+        derived().set_data( mat.data() );
         Base::template init_sns_reshape_tensor<dim-1,1,2,Index,Index>(
-                Shape<2,Index>( shape ),
-                Stride<2,Index>( stride ),
+                ShapeOwn<2,Index>( mat.rows(), mat.cols() ),
+                StrideOwn<2,Index>( mat.outerStride(), mat.innerStride() ),
                 dimensions... );
     }
+
+    // Nope, define it in TensorMapDim
+    inline int shape( int s ) const
+    { return m_shape[s]; }
+
+    inline int stride( int s ) const
+    { return m_stride[s]; }
+
+    template< typename = EnableIf<!IsConst<ScalType>()> >
+    inline ScalType* data()
+    { return m_data; }
+
+    Const<ScalType>* data() const
+    { return m_data }
+
+protected:
+    // Nope, define it in TensorMapDim
+    inline void set_shape( int s, int value )
+    { m_shape[s] = value; }
+
+    inline void set_stride( int s, int value )
+    { m_stride[s] = value; }
+
+    inline void set_data( ScalType* value )
+    { m_data = value; }
+
+private:
+    // Nope, define it in TensorMapDim
+    int[dim] m_shape;
+    int[dim] m_stride;
+    ScalType* data;
 };
 
 // ----------------------------------------------------------------------------------------
@@ -1113,15 +1345,8 @@ public:
 };
 */
 
-template< typename Derived >
-class TensorDim : public
-    std::conditional<
-        Traits<Derived>::dim == 1,
-        TensorBase_VectorLike< Derived >,
-        std::conditional<
-            Traits<Derived>::dim == 2,
-            TensorBase_MatrixLike< Derived >,
-            TensorBase< Derived > > >
+template< typename Derived, int dim = Traits<Derived>::dim >
+class TensorDim : public TensorBase<Derived>
 {
     typedef std::conditional<
         Traits<Derived>::dim == 1,
@@ -1162,9 +1387,9 @@ class TensorOperator :
 
 template< typename _ScalType, int _dim >
 class TensorMap :
-    public TensorMapBase< TensorMap<_ScalType,_dim> >
+    public TensorMapBase<TensorMap>
 {
-    typedef TensorMapBase< TensorMap<_ScalType,_dim> > Base;
+    typedef TensorMapBase<TensorMap> Base;
 
     using Base::Base;
     using Base::dim;
@@ -1175,4 +1400,4 @@ class TensorMap :
 } // namespace TensorMapTools
 
 template< typename ScalType, int dim >
-using TensorMap = TensorMapTools::TensorMap<ScalType,dim,0>;
+using TensorMap = TensorMapTools::TensorMap<ScalType,dim>;
