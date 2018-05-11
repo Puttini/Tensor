@@ -1422,7 +1422,7 @@ public:
     using Base::Base;
     using Base::dim;
     using Base::owns;
-    using typename Base::ScalType;
+    typedef typename Traits<Derived>::ScalType ScalType;
     using typename Base::MatrixRef;
     using typename Base::VectorRef;
     using Base::derived;
