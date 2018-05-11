@@ -210,7 +210,7 @@ struct ShapeMap : public Shape< ShapeMap<_dim,_Integer> >
      : shape(shape)
     {}
 
-    Integer get( int i )
+    Integer get( int i ) const
     { return shape[i]; }
 };
 
@@ -243,7 +243,7 @@ struct ShapeOwn : public Shape< ShapeOwn<_dim,_Integer> >
     void init()
     { }
 
-    inline Integer get( int i )
+    inline Integer get( int i ) const
     { return shape[i]; }
 };
 
@@ -295,7 +295,7 @@ struct StrideMap : public Stride< StrideMap<_dim,_Integer> >
      : stride(stride)
     {}
 
-    Integer get( int i )
+    Integer get( int i ) const
     { return stride[i]; }
 };
 
@@ -341,7 +341,7 @@ struct StrideOwn : public Stride< StrideOwn<_dim,_Integer> >
     void init()
     { }
 
-    Integer get( int i )
+    Integer get( int i ) const
     { return stride[i]; }
 };
 
@@ -382,7 +382,7 @@ public:
 
 protected:
     TensorBase() = default;
-    TensorBase( EmptyConstructor ) {}
+    explicit TensorBase( EmptyConstructor ) {}
 
     // Used to initialize strides and shapes in constructors
     // (inner stride must be specified before calling this)
@@ -424,8 +424,8 @@ protected:
             Dimensions ... dimensions )
     {
         static_assert(
-                Traits<ShapeDerived>::dim == dim && Traits<StrideDerived>::dim == dim,
-                "Invalid stride/shape dimension" );
+                Traits<ShapeDerived>::dim == Traits<StrideDerived>::dim,
+                "Inconsistent stride/shape dimension" );
 
         int new_total_size = current_total_size*nth_of_pack<s>(dimensions...);
         int other_new_total_size = other_current_total_size*other_shape[other_s];
@@ -1201,10 +1201,10 @@ public:
     { return m_stride[s]; }
 
     inline ShapeMap<dim,int> shape() const
-    { return { m_shape }; }
+    { return ShapeMap<dim,int>( m_shape ); }
 
     inline StrideMap<dim,int> stride() const
-    { return { m_stride }; }
+    { return StrideMap<dim,int>( m_stride ); }
 
     inline ScalType* data()
     { return m_data; }
@@ -1530,8 +1530,8 @@ public:
     typedef TensorMapBase<TensorMap> Base;
     friend Base;
 
-    typedef TensorBase<TensorMap> OtherBase;
-    friend OtherBase;
+    template< typename Derived >
+    friend class TensorBase;
 
     using Base::Base;
     using Base::dim;
@@ -1558,9 +1558,9 @@ TensorMap< typename TensorBase<Derived>::ScalType, new_dim >
 TensorBase<Derived>::reshape( Dimensions ... dimensions )
 {
     const Derived& d = derived();
-    TensorMap< ScalType, new_dim > new_tensor( EmptyConstructor() );
-    new_tensor.data() = d.data();
-    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+    TensorMap< ScalType, new_dim > new_tensor( (EmptyConstructor()) );
+    new_tensor.set_data( d.data() );
+    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1>(
             d.shape(), d.stride(),
             1, 1,
             dimensions... );
@@ -1573,9 +1573,9 @@ TensorMap< Const<typename TensorBase<Derived>::ScalType>, new_dim >
 TensorBase<Derived>::reshape( Dimensions ... dimensions ) const
 {
     const Derived& d = derived();
-    TensorMap< Const<ScalType>, new_dim > new_tensor( EmptyConstructor() );
-    new_tensor.data() = d.data();
-    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1,dim,int,int>(
+    TensorMap< Const<ScalType>, new_dim > new_tensor( (EmptyConstructor()) );
+    new_tensor.set_data( d.data() );
+    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1>(
             d.shape(), d.stride(),
             1, 1,
             dimensions... );
