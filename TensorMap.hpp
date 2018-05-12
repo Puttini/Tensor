@@ -1,6 +1,17 @@
 #include <Eigen/Core>
 #include <cassert>
 
+// Eigen matrix and vector
+// REMOVE ME
+template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
+using MatrixRM = Eigen::Matrix<ScalType,rows,cols,Eigen::RowMajor>;
+
+template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
+using MatrixCM = Eigen::Matrix<ScalType,rows,cols,Eigen::ColMajor>;
+
+template< typename ScalType, int size = Eigen::Dynamic >
+using Vector = MatrixCM<ScalType,size,1>;
+
 namespace TensorMapTools
 {
 
@@ -252,17 +263,6 @@ struct ShapeOwn : public Shape< ShapeOwn<_dim,_Integer> >
 // Eigen dynamic strides
 typedef Eigen::InnerStride<Eigen::Dynamic> DynInnerStride;
 typedef Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic> DynStride;
-
-// Eigen matrix and vector
-// REMOVE ME
-template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
-using MatrixRM = Eigen::Matrix<ScalType,rows,cols,Eigen::RowMajor>;
-
-template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
-using MatrixCM = Eigen::Matrix<ScalType,rows,cols,Eigen::ColMajor>;
-
-template< typename ScalType, int size = Eigen::Dynamic >
-using Vector = MatrixCM<ScalType,size,1>;
 
 template< typename Derived >
 struct Stride
@@ -1186,6 +1186,7 @@ class TensorDim : public TensorBase<Derived>
 public:
     typedef TensorBase<Derived> Base;
     friend Base;
+
     using Base::Base;
     using Base::dim;
     using Base::owns;
@@ -1345,6 +1346,7 @@ public:
     using typename Base::VectorRef;
     using Base::derived;
     using AttrBase::data;
+    using AttrBase::size;
     using AttrBase::shape;
     using AttrBase::stride;
 
@@ -1369,7 +1371,10 @@ class TensorOperator :
 
 public:
     typedef TensorOperator< Derived, _dim, _current_dim+1 > Base;
-    friend Base;
+
+    template< typename OtherDerived, int other_dim, int other_current_dim >
+    friend class TensorOperator;
+
     using Base::Base;
     using Base::dim;
     using Base::owns;
@@ -1380,6 +1385,96 @@ public:
     using Base::data;
     using Base::shape;
     using Base::stride;
+
+    inline TensorOperator< Derived, dim, _current_dim+1 >& operator()(void)
+    { return *this; }
+
+    inline TensorOperator< Derived, dim, _current_dim+1 >& operator()(void) const
+    { return *this; }
+
+    template< typename ... Dimensions,
+        typename = EnableIf<
+            (sizeof...(Dimensions)<=dim-_current_dim)
+            && (sizeof...(Dimensions)<dim) > >
+    TensorOperator<
+        TensorMap<ScalType,dim-sizeof...(Dimensions)>,
+        dim-sizeof...(Dimensions),
+        _current_dim >
+    operator()( Dimensions ... dimensions )
+    {
+        TensorOperator<
+            TensorMap<ScalType,dim-sizeof...(Dimensions)>,
+            dim-sizeof...(Dimensions),
+            _current_dim > new_tensor( (EmptyConstructor()) );
+
+        new_tensor.derived().set_data(
+                derived().data() +
+                Base::template compute_offset<_current_dim>( dimensions... ) );
+
+        for ( int s = 0 ; s < _current_dim ; ++s )
+        {
+            new_tensor.derived().set_shape( s, derived().shape(s) );
+            new_tensor.derived().set_stride( s, derived().stride(s) );
+        }
+
+        for ( int s = _current_dim+sizeof...(Dimensions) ; s < dim ; ++s )
+        {
+            new_tensor.derived().set_shape( s-sizeof...(Dimensions), derived().shape(s) );
+            new_tensor.derived().set_stride( s-sizeof...(Dimensions), derived().stride(s) );
+        }
+
+        return new_tensor;
+    }
+
+    template< typename ... Dimensions,
+        typename = EnableIf<
+            (sizeof...(Dimensions)<=dim-_current_dim)
+            && (sizeof...(Dimensions)<dim) > >
+    TensorOperator<
+        TensorMap<Const<ScalType>,dim-sizeof...(Dimensions)>,
+        dim-sizeof...(Dimensions),
+        _current_dim >
+    operator()( Dimensions ... dimensions ) const
+    {
+        TensorOperator<
+            TensorMap<Const<ScalType>,dim-sizeof...(Dimensions)>,
+            dim-sizeof...(Dimensions),
+            _current_dim > new_tensor( (EmptyConstructor()) );
+
+        new_tensor.derived().set_data(
+                derived().data() +
+                Base::template compute_offset<_current_dim>( dimensions... ) );
+
+        for ( int s = 0 ; s < _current_dim ; ++s )
+        {
+            new_tensor.derived().set_shape( s, derived().shape(s) );
+            new_tensor.derived().set_stride( s, derived().stride(s) );
+        }
+
+        for ( int s = _current_dim+sizeof...(Dimensions) ; s < dim ; ++s )
+        {
+            new_tensor.derived().set_shape( s-sizeof...(Dimensions), derived().shape(s) );
+            new_tensor.derived().set_stride( s-sizeof...(Dimensions), derived().stride(s) );
+        }
+
+        return new_tensor;
+    }
+
+    template< typename ... Dimensions,
+        typename = EnableIf<
+            (sizeof...(Dimensions)<=dim-_current_dim)
+            && (sizeof...(Dimensions)==dim) > >
+    ScalType&
+    operator()( Dimensions ... dimensions )
+    { return *(derived().data() + Base::template compute_offset<_current_dim>( dimensions... )); }
+
+    template< typename ... Dimensions,
+        typename = EnableIf<
+            (sizeof...(Dimensions)<=dim-_current_dim)
+            && (sizeof...(Dimensions)==dim) > >
+    Const<ScalType>&
+    operator()( Dimensions ... dimensions ) const
+    { return *(derived().data() + Base::template compute_offset<_current_dim>( dimensions... )); }
 
 protected:
     using Base::set_data;
@@ -1409,9 +1504,20 @@ protected:
     using Base::set_data;
     using Base::set_shape;
     using Base::set_stride;
+
+    template< int s, typename ... OtherDims >
+    int compute_offset( int i, OtherDims ... other_dimensions ) const
+    {
+        assert( i < derived().shape(i) && "Index out of shape" );
+        return i*derived().stride(i) + compute_offset<s+1>( other_dimensions... );
+    }
+
+    template< int s >
+    inline int compute_offset() const
+    { return 0; }
 };
 
-// ----- TensorMapBase -----
+// ----- TensorMap -----
 
 template< typename Derived >
 class TensorMapBase : public TensorOperator<Derived>
@@ -1523,8 +1629,7 @@ public:
 // ----- TensorMap -----
 
 template< typename _ScalType, int _dim >
-class TensorMap :
-    public TensorMapBase< TensorMap<_ScalType,_dim> >
+class TensorMap : public TensorMapBase< TensorMap<_ScalType,_dim> >
 {
 public:
     typedef TensorMapBase<TensorMap> Base;
@@ -1532,6 +1637,9 @@ public:
 
     template< typename Derived >
     friend class TensorBase;
+
+    template< typename OtherDerived, int other_dim, int other_current_dim >
+    friend class TensorOperator;
 
     using Base::Base;
     using Base::dim;
@@ -1548,6 +1656,48 @@ protected:
     using Base::set_data;
     using Base::set_shape;
     using Base::set_stride;
+};
+
+template< typename _ScalType, int _dim >
+class TensorOwn : public TensorMap<_ScalType, _dim>
+{
+public:
+    typedef TensorMap<_ScalType,_dim> Base;
+    using Base::dim;
+    using Base::owns;
+    using typename Base::ScalType;
+    using typename Base::MatrixRef;
+    using typename Base::VectorRef;
+
+    TensorOwn()
+     : Base()
+    {}
+
+    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
+    TensorOwn( Dimensions ... dimensions )
+     : Base( new ScalType[ total_size(dimensions...) ], dimensions... )
+    {}
+
+    ~TensorOwn()
+    {
+        // deleting nullptr has no effect
+        delete [] Base::data();
+    }
+
+    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
+    void resize( Dimensions ... dimensions )
+    {
+        int sz = Base::size();
+        int new_sz = Base::total_size( dimensions... );
+        if ( new_sz != sz )
+        {
+            // deleting nullptr has no effect
+            delete [] Base::data();
+            Base::set_data( new ScalType[ new_sz ] );
+        }
+        Base::set_stride( dim-1, 1 );
+        Base::template init_sns_from_shape<0>( dimensions... );
+    }
 };
 
 // ----- Method implementations -----
@@ -1586,3 +1736,6 @@ TensorBase<Derived>::reshape( Dimensions ... dimensions ) const
 
 template< typename ScalType, int dim >
 using TensorMap = TensorMapTools::TensorMap<ScalType,dim>;
+
+template< typename ScalType, int dim >
+using TensorOwn = TensorMapTools::TensorOwn<ScalType,dim>;
