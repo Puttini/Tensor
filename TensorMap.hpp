@@ -317,14 +317,14 @@ struct StrideOwn : public Stride< StrideOwn<_dim,_Integer> >
         init<0>( dimensions... );
     }
 
-    template< typename = EnableIf<dim==2> >
+    template< int subst = dim, typename = EnableIf<subst==2> >
     StrideOwn( const DynStride& other )
     {
         stride[0] = other.outer();
         stride[1] = other.inner();
     }
 
-    template< typename = EnableIf<dim==1> >
+    template< int subst = dim, typename = EnableIf<subst==1> >
     StrideOwn( const DynInnerStride& other )
     {
         stride[0] = other.inner();
@@ -508,7 +508,6 @@ protected:
     {}
 
 public:
-    //TODO put it on the top
     // Reshape the tensor
     template< int new_dim, typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions)==new_dim && !IsConst<ScalType>() > >
@@ -531,57 +530,6 @@ public:
     reshape( Dimensions ... dimensions ) const
     { return reshape< sizeof...(Dimensions), Dimensions... >( dimensions... ); }
 
-protected:
-    /*
-    template< typename OtherType >
-    void copy_move_constructor( OtherType other )
-    {
-        data_ = other.data_;
-        std::copy(other.stride_, other.stride_ + dim, stride_);
-        std::copy(other.shape_, other.shape_ + dim, shape_);
-    }
-
-    template< int SliceDim, typename SuperType >
-    void slice_constructor( const Slice<SliceDim>& slice, SuperType super )
-    {
-        static_assert(SliceDim <= dim, "Slice used on invalid dimension");
-        assert(slice.idx < super.shape_[SliceDim] && "Index out of shape");
-        data_ = super.data_ + slice.idx * super.stride_[SliceDim];
-        std::copy(super.stride_, super.stride_ + SliceDim, stride_);
-        std::copy(super.shape_, super.shape_ + SliceDim, shape_);
-        std::copy(super.stride_ + SliceDim + 1, super.stride_ + dim + 1, stride_ + SliceDim);
-        std::copy(super.shape_ + SliceDim + 1, super.shape_ + dim + 1, shape_ + SliceDim);
-    }
-    */
-
-    template< int contract_dim, typename ShapeDerived, typename StrideDerived,
-        typename = EnableIf< (contract_dim<dim) > >
-    void init_sns_from_contraction(
-            const Shape<ShapeDerived>& initial_shape,
-            const Stride<StrideDerived>& initial_stride )
-    {
-        static_assert( ShapeDerived::dim == dim+1 && StrideDerived::dim == dim+1,
-                "Invalid shape/stride" );
-
-        assert( initial_stride[contract_dim] ==
-                initial_stride[contract_dim+1] * initial_shape[contract_dim+1]
-                && "Dimension cannot be contracted" );
-
-        Derived& d = derived();
-
-        for ( int s = 0 ; s < contract_dim ; ++s )
-            d.set_stride( s, initial_stride[s] );
-        for ( int s = contract_dim ; s < dim ; ++s )
-            d.set_stride( s, initial_stride[s+1] );
-
-        for ( int s = 0 ; s < contract_dim ; ++s )
-            d.set_shape( s, initial_shape[s] );
-        d.set_shape( contract_dim, initial_shape[contract_dim] * initial_shape[contract_dim+1] );
-        for ( int s = contract_dim+1 ; s < dim ; ++s )
-            d.set_shape( s, initial_shape[s+1] );
-    }
-
-public:
     // Returns a slice, along SliceDim
     template< int slice_dim >
     TensorMap< Const<ScalType>, dim-1 > slice( int idx ) const
@@ -724,23 +672,71 @@ public:
     }
 
     // Contracts ContractDim with ContractDim+1 dimensions
-    //TODO Check it, and put it on the top
-    /*
-    template< int contract_dim >
+    template< int contract_dim,
+        typename Subst = ScalType, typename = EnableIf<!IsConst<Subst>()> >
     TensorMap<ScalType,dim-1>
     contract()
     {
-        assert( stride_[contract_dim] == stride_[contract_dim+1] * shape_[contract_dim+1]
+        static_assert( contract_dim < dim-1,
+                "Cannot contract this dimension with the next one" );
+        Derived& d = derived();
+        assert( d.shape(contract_dim) ==
+                d.stride(contract_dim+1) * d.shape(contract_dim+1)
                 && "Cannot be trivially contracted" );
-        return TensorMap_Dim<ScalType,dim-1,0>( Contraction<contract_dim>(), *this );
+
+        TensorMap<ScalType,dim-1> new_tensor( (EmptyConstructor()) );
+
+        new_tensor.set_data( d.data() );
+
+        for ( int s = 0 ; s < contract_dim ; ++s )
+        {
+            new_tensor.set_shape( s, d.shape(s) );
+            new_tensor.set_stride( s, d.stride(s) );
+        }
+
+        new_tensor.set_shape( contract_dim, d.shape(contract_dim)*d.shape(contract_dim+1) );
+        new_tensor.set_stride( contract_dim, d.stride(contract_dim+1) );
+
+        for ( int s = contract_dim+1 ; s < dim-1 ; ++s )
+        {
+            new_tensor.set_shape( s, d.shape(s+1) );
+            new_tensor.set_stride( s, d.stride(s+1) );
+        }
+
+        return new_tensor;
     }
+
     template< int contract_dim >
     TensorMap<Const<ScalType>,dim-1>
     contract() const
     {
-        assert( stride_[contract_dim] == stride_[contract_dim+1] * shape_[contract_dim+1]
+        static_assert( contract_dim < dim-1,
+                "Cannot contract this dimension with the next one" );
+        const Derived& d = derived();
+        assert( d.shape(contract_dim) ==
+                d.stride(contract_dim+1) * d.shape(contract_dim+1)
                 && "Cannot be trivially contracted" );
-        return TensorMap_Dim<Const<ScalType>,dim-1,0>( Contraction<contract_dim>(), *this );
+
+        TensorMap<Const<ScalType>,dim-1> new_tensor( (EmptyConstructor()) );
+
+        new_tensor.set_data( d.data() );
+
+        for ( int s = 0 ; s < contract_dim ; ++s )
+        {
+            new_tensor.set_shape( s, d.shape(s) );
+            new_tensor.set_stride( s, d.stride(s) );
+        }
+
+        new_tensor.set_shape( contract_dim, d.shape(contract_dim)*d.shape(contract_dim+1) );
+        new_tensor.set_stride( contract_dim, d.stride(contract_dim+1) );
+
+        for ( int s = contract_dim+1 ; s < dim-1 ; ++s )
+        {
+            new_tensor.set_shape( s, d.shape(s+1) );
+            new_tensor.set_stride( s, d.stride(s+1) );
+        }
+
+        return new_tensor;
     }
 
     TensorMap<ScalType,dim-1> contractFirst()
@@ -752,7 +748,6 @@ public:
     { return contract<dim-2>(); }
     TensorMap<Const<ScalType>,dim-1> contractLast() const
     { return contract<dim-2>(); }
-    */
 };
 
 // ----- TensorDim -----
@@ -873,6 +868,18 @@ public:
             return Base::innerStride();
         assert( "Invalid requested stride" );
         return -1;
+    }
+
+    inline ShapeOwn<2,int> shape() const
+    {
+        return ShapeOwn<2,int>( Base::rows(), Base::cols() );
+    }
+
+    inline StrideOwn<2,int> stride() const
+    {
+        return StrideOwn<2,int>(
+                Base::outerStride(),
+                Base::innerStride() );
     }
 
 protected:
@@ -1031,6 +1038,16 @@ public:
             return Base::innerStride();
         assert( "Invalid requested stride" );
         return -1;
+    }
+
+    inline ShapeOwn<1,int> shape() const
+    {
+        return ShapeOwn<1,int>( Base::rows() );
+    }
+
+    inline StrideOwn<1,int> stride() const
+    {
+        return StrideOwn<1,int>( Base::innerStride() );
     }
 
 protected:
