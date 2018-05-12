@@ -9,6 +9,8 @@ int main()
     TensorMap<float,2> t( nullptr, 3, 4 );
     TensorMap<float,3> t2( nullptr, 3, 4, 5 );
 
+    static_assert( TensorMapTools::ConstCompatible< float, const float >() );
+
     t2();
     t2()();
     t2()()();
@@ -28,6 +30,8 @@ int main()
     t2()(0)();
     t2(1,2)();
     t2(1,2,3) = 3;
+
+    auto sub_t2 = t2()(2).ref();
 
     //TensorMap<const float,3> t2 = t.reshape( 1, 7, 1 );
     //TensorMap<float,2> t2( nullptr, 3, 4 );

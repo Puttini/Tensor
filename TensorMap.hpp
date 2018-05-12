@@ -516,9 +516,9 @@ public:
     reshape( Dimensions ... dimensions ) const;
 
     // You can omit the new dimension
-    template< typename ... Dimensions, typename Subst = ScalType >
+    template< typename ... Dimensions, typename Subst = ScalType, typename = EnableIf< !IsConst<Subst>() > >
     inline TensorMap< ScalType, sizeof...(Dimensions) >
-    reshape( Dimensions ... dimensions, EnableIf< !IsConst<Subst>() > = {}  )
+    reshape( Dimensions ... dimensions  )
     { return reshape< sizeof...(Dimensions), Dimensions... >( dimensions... ); }
 
     template< typename ... Dimensions >
@@ -1354,11 +1354,198 @@ protected:
     using AttrBase::set_data;
     using AttrBase::set_shape;
     using AttrBase::set_stride;
+
+public:
+    // Use these functions to explicitly get an Eigen::Map
+    template< typename Subst = ScalType, typename = EnableIf< !IsConst<Subst>() > >
+    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >
+    map()
+    {
+        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >(
+                derived().data(), derived().shape(0), derived().shape(1),
+                DynStride(derived().stride(0), derived().stride(1)) );
+    }
+
+    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >
+    const_map() const
+    {
+        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >(
+                derived().data(), derived().shape(0), derived().shape(1),
+                DynStride(derived().stride(0), derived().stride(1)) );
+    }
+
+    // Same with contiguity guarantee
+    template< typename Subst = ScalType, typename = EnableIf< !IsConst<Subst>() > >
+    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >
+    ref()
+    {
+        assert( derived().stride(dim-1) == 1 && "This map is not contiguous" );
+        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >(
+                derived().data(), derived().shape(0), derived().shape(1),
+                Eigen::OuterStride<>(derived().stride(0)) );
+    }
+
+    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >
+    const_ref() const
+    {
+        assert( derived().stride(dim-1) == 1 && "This map is not contiguous" );
+        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >(
+                derived().data(), derived().shape(0), derived().shape(1),
+                Eigen::OuterStride<>(derived().stride(0)) );
+    }
 };
 
 // ----- TensorDim<1> -----
 
-//TODO
+// We mess up encapsulation here
+class PublicDynInnerStride : public DynInnerStride
+{
+public:
+    typedef Eigen::Index Index;
+    enum
+    {
+        InnerStrideAtCompileTime = Eigen::Dynamic,
+        OuterStrideAtCompileTime = 0
+    };
+
+    PublicDynInnerStride()
+     : DynInnerStride(0)
+    { }
+
+    //TODO define friendship instead of letting this public
+    void set_inner( int i )
+    { DynInnerStride::m_inner.setValue(i); }
+};
+
+template< typename Derived >
+class TensorBase_VectorLike :
+    public Eigen::Map<
+        ConstAs< typename Traits<Derived>::ScalType,
+            Vector< NonConst<typename Traits<Derived>::ScalType> > >,
+        Eigen::Unaligned, PublicDynInnerStride >
+{
+public:
+    typedef Eigen::Map<
+        ConstAs< typename Traits<Derived>::ScalType,
+            Vector< NonConst<typename Traits<Derived>::ScalType> > >,
+        Eigen::Unaligned, PublicDynInnerStride >
+        Base;
+
+    typedef typename Traits<Derived>::ScalType ScalType;
+
+    using Base::data;
+
+    // Must define default constructor...
+    TensorBase_VectorLike()
+     : Base( nullptr, 0, PublicDynInnerStride() )
+    {}
+
+    inline int shape( int s ) const
+    {
+        if ( s == 0 )
+            return Base::rows();
+        assert( "Invalid requested shape" );
+        return -1;
+    }
+
+    inline int stride( int s ) const
+    {
+        if ( s == 0 )
+            return Base::innerStride();
+        assert( "Invalid requested stride" );
+        return -1;
+    }
+
+protected:
+    typedef Eigen::internal::variable_if_dynamic<typename Base::Index, Eigen::Dynamic> AttrType;
+
+    inline void set_shape( int s, int value )
+    {
+        if ( s == 0 )
+            const_cast< AttrType* >(&(Eigen::MapBase<Base>::m_rows))->setValue(value);
+        assert( "Invalid requested shape" );
+    }
+
+    inline void set_stride( int s, int value )
+    {
+        if ( s == 0 )
+            Base::m_stride.set_inner( value );
+        assert( "Invalid requested stride" );
+    }
+
+    inline void set_data( ScalType* value )
+    { Eigen::MapBase<Base>::m_data = value; }
+};
+
+// The order of inheritance is important here
+// We want to call the default constructor of TensorBase_VectorLike
+// before calling any constructor of TensorBase
+template< typename Derived >
+class TensorDim<Derived,1> :
+    public TensorBase_VectorLike<Derived>,
+    public TensorBase<Derived>
+{
+public:
+    typedef TensorBase<Derived> Base;
+    typedef TensorBase_VectorLike<Derived> AttrBase;
+
+    friend Base;
+    friend AttrBase;
+
+    using Base::Base;
+    using Base::dim;
+    using Base::owns;
+    using typename Base::ScalType;
+    using typename Base::MatrixRef;
+    using typename Base::VectorRef;
+    using Base::derived;
+    using AttrBase::data;
+    using AttrBase::size;
+    using AttrBase::shape;
+    using AttrBase::stride;
+
+protected:
+    using AttrBase::set_data;
+    using AttrBase::set_shape;
+    using AttrBase::set_stride;
+
+public:
+    // Use these functions to explicitly get an Eigen::Map
+    template< typename Subst = ScalType, typename = EnableIf< !IsConst<Subst>() > >
+    Eigen::Map< Vector<ScalType>, Eigen::Unaligned, DynInnerStride >
+    map()
+    {
+        return Eigen::Map< Vector<ScalType>, Eigen::Unaligned, DynInnerStride >(
+                derived().data(), derived().shape(0),
+                DynInnerStride( derived().stride(0) ) );
+    }
+
+    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynInnerStride >
+    const_map() const
+    {
+        return Eigen::Map< const Vector< NonConst<ScalType> >, Eigen::Unaligned, DynInnerStride >(
+                derived().data(), derived().shape(0),
+                DynInnerStride( derived().stride(0) ) );
+    }
+
+    // Same with contiguity guarantee
+    template< typename Subst = ScalType, typename = EnableIf< !IsConst<Subst>() > >
+    Eigen::Map< Vector<ScalType> >
+    ref()
+    {
+        assert( derived().stride(dim-1) == 1 && "This map is not contiguous" );
+        return Eigen::Map< Vector<ScalType> >(
+                derived().data(), derived().shape(0) );
+    }
+
+    Eigen::Map< const Vector< NonConst<ScalType> > >
+    const_ref() const
+    {
+        assert( derived().stride(dim-1) == 1 && "This map is not contiguous" );
+        return Eigen::Map< const Vector< NonConst<ScalType> > >(
+                derived().data(), derived().shape(0) );
+    }
+};
 
 // ----- TensorOperator -----
 
@@ -1489,6 +1676,10 @@ class TensorOperator< Derived, _dim, _dim > :
 public:
     typedef TensorDim<Derived> Base;
     friend Base;
+
+    template< typename OtherDerived, int other_dim, int other_current_dim >
+    friend class TensorOperator;
+
     using Base::Base;
     using Base::dim;
     using Base::owns;
@@ -1593,6 +1784,19 @@ public:
         ConstCompatible< typename Traits<OtherDerived>::ScalType, ScalType >()
         && Traits<Derived>::dim == dim > >
     TensorMapBase( ConstAs< ScalType,TensorBase< OtherDerived > >& other )
+    {
+        derived().set_data( other.derived().data() );
+        for ( int s = 0 ; s < dim ; ++s )
+        {
+            derived().set_shape( s, other.derived().shape(s) );
+            derived().set_stride( s, other.derived().stride(s) );
+        }
+    }
+
+    template< typename OtherDerived, typename = EnableIf<
+        !IsConst< typename Traits<OtherDerived>::ScalType >()
+        && Traits<Derived>::dim == dim > >
+    TensorMapBase( TensorBase< OtherDerived >&& other )
     {
         derived().set_data( other.derived().data() );
         for ( int s = 0 ; s < dim ; ++s )
@@ -1707,7 +1911,7 @@ template< int new_dim, typename ... Dimensions, typename >
 TensorMap< typename TensorBase<Derived>::ScalType, new_dim >
 TensorBase<Derived>::reshape( Dimensions ... dimensions )
 {
-    const Derived& d = derived();
+    Derived& d = derived();
     TensorMap< ScalType, new_dim > new_tensor( (EmptyConstructor()) );
     new_tensor.set_data( d.data() );
     new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1>(
