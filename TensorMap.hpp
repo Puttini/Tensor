@@ -357,6 +357,11 @@ struct InnerStride
     {}
 };
 
+// ----- Some other usefull forward declarations -----
+
+template< typename Derived, int _dim = Traits<Derived>::dim, int _current_dim = 0 >
+class TensorOperator;
+
 // ----- TensorBase -----
 
 // This CRTP class describes the generic behaviour
@@ -577,39 +582,43 @@ protected:
     }
 
 public:
-    /*
     // Returns a slice, along SliceDim
-    template<int SliceDim>
-    TensorMap<Const<ScalType>,dim-1> slice(int idx) const
-    { return TensorMap_Dim<Const<ScalType>,dim-1,0>(Slice<SliceDim>(idx), *this); }
-    template<int SliceDim>
-    TensorMap<ScalType,dim-1> slice(int idx)
-    { return TensorMap_Dim<ScalType,dim-1,0>(Slice<SliceDim>(idx), *this); }
+    template< int slice_dim >
+    TensorMap< Const<ScalType>, dim-1 > slice( int idx ) const
+    {
+        const auto& op = *static_cast< const TensorOperator<Derived,dim,slice_dim>* >(this);
+        return op( idx );
+    }
+    template< int slice_dim >
+    TensorMap<ScalType,dim-1> slice( int idx )
+    {
+        auto& op = *static_cast< TensorOperator<Derived,dim,slice_dim>* >(this);
+        return op( idx );
+    }
 
     // Equivalent to tensor block
-    template< int SliceDim>
-    TensorMap_Dim<Const<ScalType>,dim,0> middleSlices( int begin, int sz ) const
+    template< int slice_dim >
+    TensorMap<Const<ScalType>,dim> middleSlices( int begin, int sz ) const
     {
-        static_assert( SliceDim < dim, "Invalid slice dimension" );
-        assert( begin >= 0 && begin+sz <= shape_[SliceDim]
+        static_assert( slice_dim < dim, "Invalid slice dimension" );
+        assert( begin >= 0 && begin+sz <= derived().shape(slice_dim)
                 && "Invalid indices" );
-        TensorMap_Dim<Const<ScalType>,dim,0> res = *this;
-        res.data_ += begin * stride_[SliceDim];
-        res.shape_[SliceDim] = sz;
+        TensorMap<Const<ScalType>,dim> res( *this );
+        res.set_data( res.data() + derived().stride( slice_dim ) );
+        res.set_shape( slice_dim, sz );
         return res;
     }
-    template< int SliceDim>
-    TensorMap_Dim<ScalType,dim,0> middleSlices( int begin, int sz )
+    template< int slice_dim >
+    TensorMap<ScalType,dim> middleSlices( int begin, int sz )
     {
-        static_assert( SliceDim < dim, "Invalid slice dimension" );
-        assert( begin >= 0 && begin+sz <= shape_[SliceDim]
+        static_assert( slice_dim < dim, "Invalid slice dimension" );
+        assert( begin >= 0 && begin+sz <= derived().shape(slice_dim)
                 && "Invalid indices" );
-        TensorMap_Dim<ScalType,dim,0> res = *this;
-        res.data_ += begin * stride_[SliceDim];
-        res.shape_[SliceDim] = sz;
+        TensorMap<ScalType,dim> res( *this );
+        res.set_data( res.data() + derived().stride( slice_dim ) );
+        res.set_shape( slice_dim, sz );
         return res;
-    }*/
-
+    }
 
     // --- Utility methods ---
 
@@ -745,438 +754,6 @@ public:
     { return contract<dim-2>(); }
     */
 };
-
-// ----------------------------------------------------------------------------------------
-/*
-// This is the final class, that implements operator() and provides
-// Eigen operations on dimensions 1 and 2
-template< typename ScalType, int dim, int current_dim >
-class TensorMap_Dim : public TensorMapBase<ScalType,dim>
-{
-    static_assert( current_dim <= dim, "You probably called operator() too many times" );
-
-public:
-    // Perfect forwarding.
-    // This enables calling this constructor on TensorMapBase types,
-    // which 'using TensoMapBase::TensorMapBase' does not
-    template< typename ... Args >
-    TensorMap_Dim( Args&& ... args )
-     : TensorMapBase<ScalType,dim>( std::forward<Args>(args)... )
-    {}
-
-    TensorMap_Dim< ScalType, dim, current_dim+1 >
-    operator()( void )
-    { return TensorMap_Dim< ScalType, dim, current_dim+1 >( *this ); }
-    TensorMap_Dim< Const<ScalType>, dim, current_dim+1 >
-    operator()( void ) const
-    { return TensorMap_Dim< Const<ScalType>, dim, current_dim+1 >( *this ); }
-
-    TensorMap_Dim< ScalType, dim-1, current_dim >
-    operator()( int i )
-    {
-        assert( i >= 0 && i < this->shape_[current_dim] && "Index out of range" );
-        return TensorMap_Dim< ScalType, dim-1, current_dim >( Slice<current_dim>(i), *this );
-    }
-    TensorMap_Dim< Const<ScalType>, dim-1, current_dim >
-    operator()( int i ) const
-    {
-        assert( i >= 0 && i < this->shape_[current_dim] && "Index out of range" );
-        return TensorMap_Dim< Const<ScalType>, dim-1, current_dim >( Slice<current_dim>(i), *this );
-    }
-
-    // template< typename ... OtherIndices >
-    // typename std::result_of< TensorMap_Dim<ScalType, dim-1, current_dim >(OtherIndices...) >::type
-    // operator()( int i, OtherIndices ... indices )
-    // { return this->operator()(i)(indices...); }
-    // template< typename ... OtherIndices >
-    // typename std::result_of< TensorMap_Dim<Const<ScalType>, dim-1, current_dim >(OtherIndices...) >::type
-    // operator()( int i, OtherIndices ... indices ) const
-    // { return this->operator()(i)(indices...); }
-};
-
-template< typename ScalType >
-class TensorMap_Dim<ScalType,1,0> :
-        public TensorMapBase<ScalType,1>,
-        public Eigen::Map< ConstAs<ScalType,Vector<NonConst<ScalType>>>, Eigen::Unaligned, DynInnerStride >
-{
-    typedef Eigen::Map< ConstAs<ScalType,Vector<NonConst<ScalType>>>, Eigen::Unaligned, DynInnerStride > EigenBase;
-    typedef Eigen::Ref< ConstAs<ScalType,Vector<NonConst<ScalType>>>, Eigen::Unaligned, DynInnerStride > EigenRef;
-
-public:
-    using EigenBase::operator=;
-    using EigenBase::operator+=;
-    using EigenBase::operator-=;
-    using TensorMapBase<ScalType,1>::size;
-    using TensorMapBase<ScalType,1>::data;
-
-    // Perfect forwarding.
-    template< typename ... Args >
-    TensorMap_Dim( Args&& ... args )
-     : TensorMapBase<ScalType,1>( std::forward<Args>(args)... ),
-       EigenBase( this->data_, this->shape_[0],
-                  DynInnerStride(this->stride_[0]) )
-    {}
-
-    // This specific constructor allows implicit conversion from any Vector
-    TensorMap_Dim( EigenRef&& vec )
-     : TensorMapBase<ScalType,1>( std::move(vec) ),
-       EigenBase( this->data_, this->shape_[0],
-                  DynInnerStride(this->stride_[0]) )
-    {}
-
-
-    // Use these functions to explicitly get an Eigen::Map
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< Vector<ScalType>, Eigen::Unaligned, DynInnerStride >
-    map( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        return Eigen::Map< Vector<ScalType>, Eigen::Unaligned, DynInnerStride >(
-                this->data_, this->shape_[0], DynInnerStride(this->stride_[0]) );
-    }
-
-    Eigen::Map< const Vector< NonConst<ScalType> >, Eigen::Unaligned, DynInnerStride >
-    const_map() const
-    {
-        return Eigen::Map< const Vector< NonConst<ScalType> >, Eigen::Unaligned, DynInnerStride >(
-                this->data_, this->shape_[0], DynInnerStride(this->stride_[0]) );
-    }
-
-    // Same with contiguity guarantee
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< Vector<ScalType> >
-    ref( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        assert( this->stride_[0] == 1 && "This map is not contiguous" );
-        return Eigen::Map< Vector<ScalType> >(
-                this->data_, this->shape_[0] );
-    }
-
-    Eigen::Map< const Vector< NonConst<ScalType> > >
-    const_ref() const
-    {
-        assert( this->stride_[0] == 1 && "This map is not contiguous" );
-        return Eigen::Map< const Vector< NonConst<ScalType> > >(
-                this->data_, this->shape_[0] );
-    }
-
-
-    TensorMap_Dim< ScalType, 1, 1 >
-    operator()( void )
-    { return TensorMap_Dim< ScalType, 1, 1 >( *this ); }
-    TensorMap_Dim< Const<ScalType>, 1, 1 >
-    operator()( void ) const
-    { return TensorMap_Dim< Const<ScalType>, 1, 1 >( *this ); }
-
-    typename std::conditional< std::is_const<ScalType>::value, NonConst<ScalType>, ScalType& >::type
-    operator()( int i )
-    {
-        assert( i >= 0 && i < this->shape_[0] && "Index out of range" );
-        return this->EigenBase::operator()(i);
-    }
-    ScalType
-    operator()( int i ) const
-    {
-        assert( i >= 0 && i < this->shape_[0] && "Index out of range" );
-        return this->EigenBase::operator()(i);
-    }
-};
-
-template< typename ScalType >
-class TensorMap_Dim<ScalType,1,1> :
-        public TensorMapBase<ScalType,1>,
-        public Eigen::Map< ConstAs<ScalType,Vector<NonConst<ScalType>>>, Eigen::Unaligned, DynInnerStride >
-{
-    typedef Eigen::Map< ConstAs<ScalType,Vector<NonConst<ScalType>>>, Eigen::Unaligned, DynInnerStride > EigenBase;
-
-public:
-    using EigenBase::operator=;
-    using EigenBase::operator+=;
-    using EigenBase::operator-=;
-    using TensorMapBase<ScalType,1>::size;
-    using TensorMapBase<ScalType,1>::data;
-
-    // Perfect forwarding.
-    template< typename ... Args >
-    TensorMap_Dim( Args&& ... args )
-     : TensorMapBase<ScalType,1>( std::forward<Args>(args)... ),
-       EigenBase( this->data_, this->shape_[0],
-                  DynInnerStride(this->stride_[0]) )
-    {}
-
-    // Use these functions to explicitly get an Eigen::Map
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< Vector<ScalType>, Eigen::Unaligned, DynInnerStride >
-    map( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        return Eigen::Map< Vector<ScalType>, Eigen::Unaligned, DynInnerStride >(
-                this->data_, this->shape_[0], DynInnerStride(this->stride_[0]) );
-    }
-
-    Eigen::Map< const Vector< NonConst<ScalType> >, Eigen::Unaligned, DynInnerStride >
-    const_map() const
-    {
-        return Eigen::Map< const Vector< NonConst<ScalType> >, Eigen::Unaligned, DynInnerStride >(
-                this->data_, this->shape_[0], DynInnerStride(this->stride_[0]) );
-    }
-
-    // Same with contiguity guarantee
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< Vector<ScalType> >
-    ref( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        assert( this->stride_[0] == 1 && "This map is not contiguous" );
-        return Eigen::Map< Vector<ScalType> >(
-                this->data_, this->shape_[0] );
-    }
-
-    Eigen::Map< const Vector< NonConst<ScalType> > >
-    const_ref() const
-    {
-        assert( this->stride_[0] == 1 && "This map is not contiguous" );
-        return Eigen::Map< const Vector< NonConst<ScalType> > >(
-                this->data_, this->shape_[0] );
-    }
-};
-
-template< typename ScalType >
-class TensorMap_Dim<ScalType,2,0> :
-        public TensorMapBase<ScalType,2>,
-        public Eigen::Map< ConstAs<ScalType,MatrixRM<NonConst<ScalType>>>, Eigen::Unaligned, DynStride >
-{
-    typedef Eigen::Map< ConstAs<ScalType,MatrixRM<NonConst<ScalType>>>, Eigen::Unaligned, DynStride > EigenBase;
-    typedef Eigen::Ref< ConstAs<ScalType,MatrixRM<NonConst<ScalType>>>, Eigen::Unaligned, DynStride > EigenRef;
-
-public:
-    using EigenBase::operator=;
-    using EigenBase::operator+=;
-    using EigenBase::operator-=;
-    using TensorMapBase<ScalType,2>::size;
-    using TensorMapBase<ScalType,2>::data;
-
-    // Perfect forwarding.
-    template< typename ... Args >
-    TensorMap_Dim( Args&& ... args )
-     : TensorMapBase<ScalType,2>( std::forward<Args>(args)... ),
-       EigenBase( this->data_, this->shape_[0], this->shape_[1],
-                  DynStride(this->stride_[0], this->stride_[1]) )
-    {}
-
-    // This specific constructor allows implicit conversion from any MatrixRM
-    TensorMap_Dim( EigenRef&& mat )
-     : TensorMapBase<ScalType,2>( std::move(mat), mat.rows(), mat.cols() ),
-       EigenBase( this->data_, this->shape_[0], this->shape_[1],
-                  DynStride(this->stride_[0], this->stride_[1]) )
-    {}
-
-    // Use these functions to explicitly get an Eigen::Map
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >
-    map( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >(
-                this->data_, this->shape_[0], this->shape_[1],
-                DynStride(this->stride_[0],this->stride_[1]) );
-    }
-
-    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >
-    const_map() const
-    {
-        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >(
-                this->data_, this->shape_[0], this->shape_[1],
-                DynStride(this->stride_[0], this->stride_[1]) );
-    }
-
-
-    // Same with contiguity guarantee
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >
-    ref( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        assert( this->stride_[1] == 1 && "This map is not contiguous" );
-        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >(
-                this->data_, this->shape_[0], this->shape_[1],
-                Eigen::OuterStride<>(this->stride_[0]) );
-    }
-
-    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >
-    const_ref() const
-    {
-        assert( this->stride_[1] == 1 && "This map is not contiguous" );
-        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >(
-                this->data_, this->shape_[0], this->shape_[1],
-                Eigen::OuterStride<>(this->stride_[0]) );
-    }
-
-    TensorMap_Dim< ScalType, 2, 1 >
-    operator()( void )
-    { return TensorMap_Dim< ScalType, 2, 1 >( *this ); }
-    TensorMap_Dim< Const<ScalType>, 2, 1 >
-    operator()( void ) const
-    { return TensorMap_Dim< Const<ScalType>, 2, 1 >( *this ); }
-
-    TensorMap_Dim< ScalType, 1, 0 >
-    operator()( int i )
-    {
-        assert( i >= 0 && i < this->shape_[0] && "Index out of range" );
-        return TensorMap_Dim< ScalType, 1, 0 >( Slice<0>(i), *this );
-    }
-    TensorMap_Dim< Const<ScalType>, 1, 0 >
-    operator()( int i ) const
-    {
-        assert( i >= 0 && i < this->shape_[0] && "Index out of range" );
-        return TensorMap_Dim< Const<ScalType>, 1, 0 >( Slice<0>(i), *this );
-    }
-
-    typename std::conditional< std::is_const<ScalType>::value, NonConst<ScalType>, ScalType& >::type
-    operator()( int i, int j )
-    { return this->EigenBase::operator()( i, j ); }
-    ScalType
-    operator()( int i, int j ) const
-    { return this->EigenBase::operator()( i, j ); }
-};
-
-template< typename ScalType >
-class TensorMap_Dim<ScalType,2,1> :
-        public TensorMapBase<ScalType,2>,
-        public Eigen::Map< ConstAs<ScalType,MatrixRM<NonConst<ScalType>>>, Eigen::Unaligned, DynStride >
-{
-    typedef Eigen::Map< ConstAs<ScalType,MatrixRM<NonConst<ScalType>>>, Eigen::Unaligned, DynStride > EigenBase;
-
-public:
-    using EigenBase::operator=;
-    using EigenBase::operator+=;
-    using EigenBase::operator-=;
-    using TensorMapBase<ScalType,2>::size;
-    using TensorMapBase<ScalType,2>::data;
-
-    // Perfect forwarding.
-    template< typename ... Args >
-    TensorMap_Dim( Args&& ... args )
-     : TensorMapBase<ScalType,2>( std::forward<Args>(args)... ),
-       EigenBase( this->data_, this->shape_[0], this->shape_[1],
-                  DynStride(this->stride_[0], this->stride_[1]) )
-    {}
-
-    // Use these functions to explicitly get an Eigen::Map
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >
-    map( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >(
-                this->data_, this->shape_[0], this->shape_[1],
-                DynStride(this->stride_[0],this->stride_[1]) );
-    }
-
-    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >
-    const_map() const
-    {
-        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >(
-                this->data_, this->shape_[0], this->shape_[1],
-                DynStride(this->stride_[0], this->stride_[1]) );
-    }
-
-    // Same with contiguity guarantee
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >
-    ref( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        assert( this->stride_[1] == 1 && "This map is not contiguous" );
-        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >(
-                this->data_, this->shape_[0], this->shape_[1],
-                Eigen::OuterStride<>(this->stride_[0]) );
-    }
-
-    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >
-    const_ref() const
-    {
-        assert( this->stride_[1] == 1 && "This map is not contiguous" );
-        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >(
-                this->data_, this->shape_[0], this->shape_[1],
-                Eigen::OuterStride<>(this->stride_[0]) );
-    }
-
-    TensorMap_Dim< ScalType, 2, 2 >
-    operator()( void )
-    { return TensorMap_Dim< ScalType, 2, 2 >( *this ); }
-    TensorMap_Dim< Const<ScalType>, 2, 2 >
-    operator()( void ) const
-    { return TensorMap_Dim< Const<ScalType>, 2, 2 >( *this ); }
-
-    TensorMap_Dim< ScalType, 1, 1 >
-    operator()( int i )
-    {
-        assert( i >= 0 && i < this->shape_[1] && "Index out of range" );
-        return TensorMap_Dim< ScalType, 1, 1 >( Slice<1>(i), *this );
-    }
-    TensorMap_Dim< Const<ScalType>, 1, 1 >
-    operator()( int i ) const
-    {
-        assert( i >= 0 && i < this->shape_[1] && "Index out of range" );
-        return TensorMap_Dim< Const<ScalType>, 1, 1 >( Slice<1>(i), *this );
-    }
-};
-
-template< typename ScalType >
-class TensorMap_Dim<ScalType,2,2> :
-        public TensorMapBase<ScalType,2>,
-        public Eigen::Map< ConstAs<ScalType,MatrixRM<NonConst<ScalType>>>, Eigen::Unaligned, DynStride >
-{
-    typedef Eigen::Map< ConstAs<ScalType,MatrixRM<NonConst<ScalType>>>, Eigen::Unaligned, DynStride > EigenBase;
-
-public:
-    using EigenBase::operator=;
-    using EigenBase::operator+=;
-    using EigenBase::operator-=;
-    using TensorMapBase<ScalType,2>::size;
-    using TensorMapBase<ScalType,2>::data;
-
-    // Perfect forwarding.
-    template< typename ... Args >
-    TensorMap_Dim( Args&& ... args )
-     : TensorMapBase<ScalType,2>( std::forward<Args>(args)... ),
-       EigenBase( this->data_, this->shape_[0], this->shape_[1],
-                  DynStride(this->stride_[0], this->stride_[1]) )
-    {}
-
-    // Use these functions to explicitly get an Eigen::Map
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >
-    map( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, DynStride >(
-                this->data_, this->shape_[0], this->shape_[1],
-                DynStride(this->stride_[0],this->stride_[1]) );
-    }
-
-    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >
-    const_map() const
-    {
-        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, DynStride >(
-                this->data_, this->shape_[0], this->shape_[1],
-                DynStride(this->stride_[0], this->stride_[1]) );
-    }
-
-    // Same with contiguity guarantee
-    template< CONDITIONAL_ENABLE_IF_TYPE(ScalType) >
-    Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >
-    ref( ENABLE_IF( !std::is_const<EnableIfType>::value ) )
-    {
-        assert( this->stride_[1] == 1 && "This map is not contiguous" );
-        return Eigen::Map< MatrixRM<ScalType>, Eigen::Unaligned, Eigen::OuterStride<> >(
-                this->data_, this->shape_[0], this->shape_[1],
-                Eigen::OuterStride<>(this->stride_[0]) );
-    }
-
-    Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >
-    const_ref() const
-    {
-        assert( this->stride_[1] == 1 && "This map is not contiguous" );
-        return Eigen::Map< const MatrixRM< NonConst<ScalType> >, Eigen::Unaligned, Eigen::OuterStride<> >(
-                this->data_, this->shape_[0], this->shape_[1],
-                Eigen::OuterStride<>(this->stride_[0]) );
-    }
-};
-*/
 
 // ----- TensorDim -----
 
@@ -1549,7 +1126,7 @@ public:
 
 // ----- TensorOperator -----
 
-template< typename Derived, int _dim = Traits<Derived>::dim, int _current_dim = 0 >
+template< typename Derived, int _dim, int _current_dim >
 class TensorOperator :
     public TensorOperator< Derived, _dim, _current_dim+1 >
 {
