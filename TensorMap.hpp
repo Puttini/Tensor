@@ -1,3 +1,6 @@
+#ifndef TENSOR_MAP_HPP
+#define TENSOR_MAP_HPP
+
 #include <Eigen/Core>
 #include <cassert>
 
@@ -1342,8 +1345,6 @@ public:
     template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
     TensorMapBase<Derived>( ScalType* data, const InnerStride& inner_stride, Dimensions ... dimensions )
     {
-        std::cout << sizeof...(Dimensions) << " == " << dim << std::endl;
-        std::cout << "Inner stride = " << inner_stride.inner << std::endl;
         derived().set_data( nullptr );
         derived().set_stride( dim-1, inner_stride.inner );
         Base::template init_sns_from_shape<0>(dimensions...);
@@ -1353,9 +1354,7 @@ public:
     template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
     inline TensorMapBase( ScalType* data, Dimensions ... dimensions )
      : TensorMapBase( data, InnerStride(1), dimensions... )
-    {
-        std::cout << "Default inner stride" << std::endl;
-    }
+    { }
 
     // You can also specify both shape and stride
     template< typename ShapeDerived, typename StrideDerived,
@@ -1537,3 +1536,5 @@ using TensorMap = TensorMapTools::TensorMap<ScalType,dim>;
 
 template< typename ScalType, int dim >
 using TensorOwn = TensorMapTools::TensorOwn<ScalType,dim>;
+
+#endif // TENSOR_MAP_HPP
