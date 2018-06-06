@@ -33,7 +33,8 @@ int main()
     TensorMap<float,2> t( nullptr, 3, 4 );
     TensorMap<float,3> t2( nullptr, 3, 4, 5 );
 
-    static_assert( TensorMapTools::ConstCompatible< float, const float >() );
+    static_assert( TensorMapTools::ConstCompatible< float, const float >(),
+           "Not const compatible" );
 
     t2();
     t2()();
