@@ -1162,13 +1162,14 @@ public:
     using Base::Base;
     using Base::dim;
     using Base::owns;
-    using typename Base::ScalType;
     using typename Base::MatrixRef;
     using typename Base::VectorRef;
     using Base::derived;
     using Base::data;
     using Base::shape;
     using Base::stride;
+
+    typedef typename Traits<Derived>::ScalType ScalType;
 
     inline TensorOperator< Derived, dim, _current_dim+1 >& operator()(void)
     { return *this; }
