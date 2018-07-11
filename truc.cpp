@@ -28,6 +28,8 @@ void static_failures()
 }
 */
 
+void my_f( const TensorMap<const float,2>& t ) {}
+
 int main()
 {
     TensorMap<float,2> t( nullptr, 3, 4 );
@@ -60,6 +62,12 @@ int main()
     t2()(2)().noalias() = t(1).ref();
 
     TensorMap<const float,3> t3 = t.reshape( 1, 7, 1 );
+
+    TensorMap<float,3> aze;
+    TensorMap<const float,3> rty;
+    aze(0)()() = rty(0)()();
+    TensorMap<const float,2> uiop( rty()(0) );
+    //my_f( TensorMap<const float,2>(rty()(0)) );
 
     return 0;
 }

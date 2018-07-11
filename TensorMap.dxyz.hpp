@@ -1,19 +1,14 @@
 #ifndef TENSOR_MAP_HPP
 #define TENSOR_MAP_HPP
 
-#include <Eigen/Core>
 #include <cassert>
+#include "dxyzEigenFlags.hpp"
+#include "memory/arena.hpp"
 
 // Eigen matrix and vector
-// REMOVE ME
-template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
-using MatrixRM = Eigen::Matrix<ScalType,rows,cols,Eigen::RowMajor>;
 
-template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
-using MatrixCM = Eigen::Matrix<ScalType,rows,cols,Eigen::ColMajor>;
-
-template< typename ScalType, int size = Eigen::Dynamic >
-using Vector = MatrixCM<ScalType,size,1>;
+namespace DxyzUtils
+{
 
 namespace TensorMapTools
 {
@@ -41,7 +36,8 @@ using Const = typename Const_<ScalType>::type;
 template< typename ScalType >
 using NonConst = typename NonConst_<ScalType>::type;
 
-// Template variable only available in C++14
+// Template variable only available in C++14...
+// ... so we use a constexpr function here
 template< typename ScalType >
 constexpr bool IsConst() { return std::is_const<ScalType>::value; }
 
@@ -788,6 +784,8 @@ public:
     inline Const<ScalType>* data() const
     { return m_data; }
 
+    TensorDim<Derived,_dim>& operator=( const TensorDim<Derived,_dim>& ) = delete;
+
 
 protected:
     inline void set_shape( int s, int value )
@@ -1382,9 +1380,9 @@ public:
     }
 
     template< typename OtherDerived, typename = EnableIf<
-        ConstCompatible< ScalType, typename Traits<OtherDerived>::ScalType >() >>
-        //&& Traits<Derived>::dim == dim > >
-    TensorMapBase( ConstAs< ScalType, TensorBase<OtherDerived> >& other )
+        ConstCompatible< typename Traits<OtherDerived>::ScalType, ScalType >()
+        && Traits<OtherDerived>::dim == dim > >
+    TensorMapBase( const TensorBase< OtherDerived >& other )
     {
         derived().set_data( other.derived().data() );
         for ( int s = 0 ; s < dim ; ++s )
@@ -1407,14 +1405,12 @@ public:
         }
     }
 
-    /* UNCOMMENT ME
     // This is used to allocate the tensor-map through a BufMap
     template< typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions) == dim > >
-    TensorMapBase( DxyzUtils::BufMap< NonConst<ScalType> >& bufmap, Dimensions ... dimensions )
-     : TensorMapBase( bufmap.ptr(total_size(dimensions...)), dimensions... )
+    TensorMapBase( BufMap< NonConst<ScalType> >& bufmap, Dimensions ... dimensions )
+     : TensorMapBase( bufmap.ptr(Base::total_size(dimensions...)), dimensions... )
     {}
-    */
 
     // This can take inner and outer strides into account (like blocks)
     template<typename ... Dimensions,
@@ -1546,5 +1542,7 @@ using TensorMap = TensorMapTools::TensorMap<ScalType,dim>;
 
 template< typename ScalType, int dim >
 using TensorOwn = TensorMapTools::TensorOwn<ScalType,dim>;
+
+} // namespace DxyzUtils
 
 #endif // TENSOR_MAP_HPP
