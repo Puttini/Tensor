@@ -1380,9 +1380,8 @@ public:
     }
 
     template< typename OtherDerived, typename = EnableIf<
-        ConstCompatible< typename Traits<OtherDerived>::ScalType, ScalType >()
-        && Traits<OtherDerived>::dim == dim > >
-    TensorMapBase( const TensorBase< OtherDerived >& other )
+        Traits<OtherDerived>::dim == dim > >
+    TensorMapBase( const TensorBase<OtherDerived>& other )
     {
         derived().set_data( other.derived().data() );
         for ( int s = 0 ; s < dim ; ++s )
@@ -1394,7 +1393,20 @@ public:
 
     template< typename OtherDerived, typename = EnableIf<
         !IsConst< typename Traits<OtherDerived>::ScalType >()
-        && Traits<Derived>::dim == dim > >
+        && Traits<OtherDerived>::dim == dim > >
+    TensorMapBase( TensorBase< OtherDerived >& other )
+    {
+        derived().set_data( other.derived().data() );
+        for ( int s = 0 ; s < dim ; ++s )
+        {
+            derived().set_shape( s, other.derived().shape(s) );
+            derived().set_stride( s, other.derived().stride(s) );
+        }
+    }
+
+    template< typename OtherDerived, typename = EnableIf<
+        !IsConst< typename Traits<OtherDerived>::ScalType >()
+        && Traits<OtherDerived>::dim == dim > >
     TensorMapBase( TensorBase< OtherDerived >&& other )
     {
         derived().set_data( other.derived().data() );
