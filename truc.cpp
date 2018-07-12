@@ -4,6 +4,20 @@
 template< typename Derived >
 void f( Eigen::MatrixBase< Derived >& mat ) {}
 
+template< typename TensorDerived >
+void printTensorInfo( const TensorMapTools::TensorBase< TensorDerived >& t )
+{
+    std::cout << "  shape: ";
+    for ( int i = 0 ; i < TensorDerived::dim ; ++i )
+        std::cout << t.shape(i) << " ";
+    std::cout << std::endl;
+
+    std::cout << "  stride: ";
+    for ( int i = 0 ; i < TensorDerived::dim ; ++i )
+        std::cout << t.stride(i) << " ";
+    std::cout << std::endl;
+}
+
 /*
 void static_failures()
 {
@@ -32,8 +46,12 @@ void my_f( const TensorMap<const float,2>& t ) {}
 
 int main()
 {
-    TensorMap<float,2> t( nullptr, 3, 4 );
-    TensorMap<float,3> t2( nullptr, 3, 4, 5 );
+    float data[100];
+    for ( int i = 0 ; i < 100 ; ++i )
+        data[i] = i;
+
+    TensorMap<float,2> t( data, 3, 4 );
+    TensorMap<float,3> t2( data, 3, 4, 5 );
 
     static_assert( TensorMapTools::ConstCompatible< float, const float >(),
            "Not const compatible" );
@@ -70,6 +88,14 @@ int main()
     //my_f( TensorMap<const float,2>(rty()(0)) );
     
     new (&aze) TensorMap<float,3>( m, 3, 2, 2 );
+
+    TensorOwn<float,3> a( 25, 2, 3 );
+    TensorMap<const float,3> b( a, 5, 5, 6 );
+
+    std::cout << " - a -" << std::endl;
+    printTensorInfo(a);
+    std::cout << " - b -" << std::endl;
+    printTensorInfo(b);
 
     return 0;
 }

@@ -523,6 +523,19 @@ protected:
     }
 
 public:
+    // data, shape, stride from derived
+    inline ScalType* data()
+    { return derived().data(); }
+
+    inline Const<ScalType>* data() const
+    { return derived().data(); }
+
+    inline int shape( int i ) const
+    { return derived().shape(i); }
+
+    inline int stride( int i ) const
+    { return derived().stride(i); }
+
     // Reshape the tensor
     template< int new_dim, typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions)==new_dim && !IsConst<ScalType>() > >
@@ -1440,6 +1453,30 @@ public:
     {}
     */
 
+    template< typename OtherDerived, typename ... Dimensions,
+        typename = EnableIf< sizeof...(Dimensions) == dim > >
+    TensorMapBase( const TensorBase< OtherDerived >& other, Dimensions ... dimensions )
+    {
+        derived().set_data( other.data() );
+        Base::template init_sns_reshape_tensor<dim-1,1>(
+                other.shape(),
+                other.stride(),
+                1, 1,
+                dimensions... );
+    }
+
+    template< typename OtherDerived, typename ... Dimensions,
+        typename = EnableIf< sizeof...(Dimensions) == dim > >
+    TensorMapBase( TensorBase< OtherDerived >& other, Dimensions ... dimensions )
+    {
+        derived().set_data( other.data() );
+        Base::template init_sns_reshape_tensor<dim-1,1>(
+                other.derived().shape(),
+                other.derived().stride(),
+                1, 1,
+                dimensions... );
+    }
+
     // This can take inner and outer strides into account (like blocks)
     template<typename ... Dimensions,
         typename = EnableIf< sizeof...(Dimensions) == dim > >
@@ -1507,7 +1544,7 @@ public:
 
     template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
     TensorOwn( Dimensions ... dimensions )
-     : Base( new ScalType[ total_size(dimensions...) ], dimensions... )
+     : Base( new ScalType[ Base::total_size(dimensions...) ], dimensions... )
     {}
 
     ~TensorOwn()
