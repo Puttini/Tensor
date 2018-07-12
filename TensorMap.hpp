@@ -433,73 +433,85 @@ protected:
     // A bit tricky : from another Tensor (including strange strides)
     // It can be a pybind array, an Eigen matrix, another Tensor, or whatever
     // It has to be recursive to statically access the members of Dimensions...
+    template< typename ShapeDerived, typename StrideDerived,
+        typename ... Dimensions,
+        typename = EnableIf< sizeof...(Dimensions) == dim > >
+    void init_sns_reshape_tensor(
+            ScalType* other_data,
+            const Shape<ShapeDerived>& other_shape,
+            const Stride<StrideDerived>& other_stride,
+            Dimensions ... dimensions )
+    {
+        static_assert( ShapeDerived::dim == StrideDerived::dim,
+                "Invalid input shape/stride" );
+
+        Derived& d = derived();
+        d.set_data( other_data );
+        d.set_shape( dim-1, nth_of_pack<dim-1>( dimensions... ) );
+        d.set_stride( dim-1, other_stride.innerStride() );
+
+        init_sns_reshape_tensor_loop<
+            dim-1, ShapeDerived::dim-1,
+            ShapeDerived, StrideDerived >(
+                    other_shape, other_stride,
+                    nth_of_pack<dim-1>( dimensions... ),
+                    other_shape[ ShapeDerived::dim-1 ],
+                    dimensions... );
+    }
+
     template< int s, int other_s,
         typename ShapeDerived, typename StrideDerived,
         typename ... Dimensions >
-    void init_sns_reshape_tensor(
+    void init_sns_reshape_tensor_loop(
             const Shape<ShapeDerived>& other_shape,
             const Stride<StrideDerived>& other_stride,
             int current_total_size,
             int other_current_total_size,
             Dimensions ... dimensions )
     {
-        static_assert(
-                Traits<ShapeDerived>::dim == Traits<StrideDerived>::dim,
-                "Inconsistent stride/shape dimension" );
-
         Derived& d = derived();
-        d.set_shape( s, nth_of_pack<s>(dimensions...) );
 
         if ( current_total_size == other_current_total_size )
         {
-            d.set_stride( s, other_stride[other_s] );
-
-            if ( s > 0 && other_s > 0 )
+            if ( s > 0 )
             {
-                // We use max(0,s) so it can compile...
-                current_total_size *= nth_of_pack<max(0,s)>(dimensions...);
-                other_current_total_size *= other_shape[other_s];
+                d.set_shape( s-1, nth_of_pack< max(0,s-1) >( dimensions... ) );
+                if ( other_s > 0 )
+                    d.set_stride( s-1, other_stride[other_s-1] );
+                else
+                    d.set_stride( s-1, d.stride(s) * d.shape(s) );
+                current_total_size *= nth_of_pack< max(0,s-1) >( dimensions... );
+            }
 
-                init_sns_reshape_tensor<max(0,s-1),max(0,other_s-1),ShapeDerived,StrideDerived>(
+            if ( other_s > 0 )
+            {
+                other_current_total_size *= other_shape[other_s-1];
+            }
+
+            if ( s > 0 || other_s > 0 )
+            {
+                init_sns_reshape_tensor_loop<
+                    max(0,s-1), max(0,other_s-1),
+                    ShapeDerived, StrideDerived >(
                         other_shape, other_stride,
                         current_total_size,
                         other_current_total_size,
                         dimensions... );
             }
-            else if ( s > 0 )
-            {
-                current_total_size *= nth_of_pack<max(0,s)>(dimensions...);
-
-                init_sns_reshape_tensor<max(0,s-1),other_s,ShapeDerived,StrideDerived>(
-                        other_shape, other_stride,
-                        current_total_size,
-                        other_current_total_size,
-                        dimensions... );
-            }
-            else if ( other_s > 0 )
-            {
-                other_current_total_size *= other_shape[other_s];
-
-                init_sns_reshape_tensor<s,max(0,other_s-1),ShapeDerived,StrideDerived>(
-                        other_shape, other_stride,
-                        current_total_size,
-                        other_current_total_size,
-                        dimensions... );
-            }
-            // else: s==0 && other_s==0 && current_total_size==other_current_total_size
-            // Done!
         }
         else if ( current_total_size > other_current_total_size )
         {
             // Split other dimension. The strides must be compatible
             assert( other_s > 0
-                    && other_shape[other_s]*other_stride[other_s]
-                        == other_stride[other_s-1]
+                    && other_stride[other_s-1] ==
+                        other_shape[other_s]*other_stride[other_s]
                     && "Incompatible stride/shape" );
 
-            current_total_size *= nth_of_pack<max(0,s-1)>(dimensions...);
+            other_current_total_size *= other_shape[other_s-1];
 
-            init_sns_reshape_tensor<s,max(0,other_s-1),ShapeDerived,StrideDerived>(
+            init_sns_reshape_tensor_loop<
+                s, max(0,other_s-1),
+                ShapeDerived, StrideDerived >(
                     other_shape, other_stride,
                     current_total_size,
                     other_current_total_size,
@@ -507,14 +519,16 @@ protected:
         }
         else // new_total_size < other_new_total_size
         {
-            // Split this dimension. The strides have no constraint
-            assert( s < dim-1 && "Invalid call?" );
             assert( s > 0 && "Incompatible sizes" );
 
-            d.set_stride( s, d.stride(s+1) * d.shape(s+1) );
-            current_total_size *= nth_of_pack<max(0,s)>(dimensions...);
+            // Split this dimension. The strides have no constraint
+            d.set_shape( s-1, nth_of_pack< max(0,s-1) >( dimensions... ) );
+            d.set_stride( s-1, d.stride(s) * d.shape(s) );
+            current_total_size *= nth_of_pack< max(0,s-1) >( dimensions... );
 
-            init_sns_reshape_tensor<max(0,s-1),other_s,ShapeDerived,StrideDerived>(
+            init_sns_reshape_tensor_loop<
+                max(0,s-1), other_s,
+                ShapeDerived, StrideDerived>(
                     other_shape, other_stride,
                     current_total_size,
                     other_current_total_size,
@@ -1457,11 +1471,10 @@ public:
         typename = EnableIf< sizeof...(Dimensions) == dim > >
     TensorMapBase( const TensorBase< OtherDerived >& other, Dimensions ... dimensions )
     {
-        derived().set_data( other.data() );
-        Base::template init_sns_reshape_tensor<dim-1,1>(
+        Base::template init_sns_reshape_tensor(
+                other.data(),
                 other.shape(),
                 other.stride(),
-                1, 1,
                 dimensions... );
     }
 
@@ -1469,11 +1482,10 @@ public:
         typename = EnableIf< sizeof...(Dimensions) == dim > >
     TensorMapBase( TensorBase< OtherDerived >& other, Dimensions ... dimensions )
     {
-        derived().set_data( other.data() );
-        Base::template init_sns_reshape_tensor<dim-1,1>(
+        Base::template init_sns_reshape_tensor(
+                other.data(),
                 other.derived().shape(),
                 other.derived().stride(),
-                1, 1,
                 dimensions... );
     }
 
@@ -1484,11 +1496,10 @@ public:
     {
         typedef typename MatrixRef::Index Index;
 
-        derived().set_data( mat.data() );
-        Base::template init_sns_reshape_tensor<dim-1,1>(
+        Base::template init_sns_reshape_tensor(
+                mat.data(),
                 ShapeOwn<2,Index>( mat.rows(), mat.cols() ),
                 StrideOwn<2,Index>( mat.outerStride(), mat.innerStride() ),
-                1, 1,
                 dimensions... );
     }
 };
@@ -1578,10 +1589,9 @@ TensorBase<Derived>::reshape( Dimensions ... dimensions )
 {
     Derived& d = derived();
     TensorMap< ScalType, new_dim > new_tensor( (EmptyConstructor()) );
-    new_tensor.set_data( d.data() );
-    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1>(
+    new_tensor.template init_sns_reshape_tensor(
+            d.data(),
             d.shape(), d.stride(),
-            1, 1,
             dimensions... );
     return new_tensor;
 }
@@ -1593,10 +1603,9 @@ TensorBase<Derived>::reshape( Dimensions ... dimensions ) const
 {
     const Derived& d = derived();
     TensorMap< Const<ScalType>, new_dim > new_tensor( (EmptyConstructor()) );
-    new_tensor.set_data( d.data() );
-    new_tensor.template init_sns_reshape_tensor<new_dim-1,dim-1>(
+    new_tensor.template init_sns_reshape_tensor(
+            d.data(),
             d.shape(), d.stride(),
-            1, 1,
             dimensions... );
     return new_tensor;
 }

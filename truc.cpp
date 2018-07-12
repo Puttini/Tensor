@@ -51,7 +51,7 @@ int main()
         data[i] = i;
 
     TensorMap<float,2> t( data, 3, 4 );
-    TensorMap<float,3> t2( data, 3, 4, 5 );
+    TensorMap<float,3> t2( data, 3, 5, 4 );
 
     static_assert( TensorMapTools::ConstCompatible< float, const float >(),
            "Not const compatible" );
@@ -77,25 +77,29 @@ int main()
     t2(1,2)();
     t2(1,2,3) = 3;
 
-    t2()(2)().noalias() = t(1).ref();
+    t2()(2)().noalias() = t.ref();
 
-    TensorMap<const float,3> t3 = t.reshape( 1, 7, 1 );
+    TensorMap<const float,3> t3 = t.reshape( 2, 3, 2 );
 
-    TensorMap<float,3> aze;
-    TensorMap<const float,3> rty;
-    aze(0)()() = rty(0)()();
-    TensorMap<const float,2> uiop( rty()(0) );
+    TensorMap<const float,2> uiop( t_own()(0)()(2) );
     //my_f( TensorMap<const float,2>(rty()(0)) );
     
-    new (&aze) TensorMap<float,3>( m, 3, 2, 2 );
+    new (&t3) TensorMap<float,3>( m, 3, 2, 2 );
 
     TensorOwn<float,3> a( 25, 2, 3 );
     TensorMap<const float,3> b( a, 5, 5, 6 );
+    TensorMap<const float,3> c( a, 25, 1, 6 );
+    TensorMap<float,3> d( a, 1, 5, 30 );
+    TensorMap<float,2> e( a, 150, 1 );
 
     std::cout << " - a -" << std::endl;
     printTensorInfo(a);
     std::cout << " - b -" << std::endl;
     printTensorInfo(b);
+    std::cout << " - c -" << std::endl;
+    printTensorInfo(c);
+    std::cout << " - d -" << std::endl;
+    printTensorInfo(d);
 
     return 0;
 }
