@@ -502,12 +502,14 @@ protected:
         else if ( current_total_size > other_current_total_size )
         {
             // Split other dimension. The strides must be compatible
-            assert( other_s > 0
-                    && other_stride[other_s-1] ==
-                        other_shape[other_s]*other_stride[other_s]
-                    && "Incompatible stride/shape" );
+            if ( other_current_total_size > 0 )
+            {
+                assert( other_s > 0 && other_stride[other_s-1] ==
+                                other_shape[other_s] * other_stride[other_s]
+                        && "Incompatible stride/shape" );
 
-            other_current_total_size *= other_shape[other_s-1];
+                other_current_total_size *= other_shape[other_s-1];
+            }
 
             init_sns_reshape_tensor_loop<
                 s, max(0,other_s-1),

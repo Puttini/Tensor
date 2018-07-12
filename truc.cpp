@@ -92,6 +92,10 @@ int main()
     TensorMap<float,3> d( a, 1, 5, 30 );
     TensorMap<float,2> e( a, 150, 1 );
 
+    TensorOwn<float,2> empty( 0, 6 );
+    TensorMap<float,3> empty_map0( empty, 2, 3, 0 );
+    TensorMap<float,3> empty_map1( empty, 0, 3, 1 );
+
     std::cout << " - a -" << std::endl;
     printTensorInfo(a);
     std::cout << " - b -" << std::endl;
