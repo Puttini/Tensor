@@ -400,7 +400,7 @@ protected:
         Derived& d = derived();
         d.set_shape( s, dimension );
         init_sns_from_shape<s+1>( other_dimensions... );
-        d.set_stride( dimension, d.shape(dimension + 1) * d.stride(dimension + 1) );
+        d.set_stride( s, d.shape(s + 1) * d.stride(s + 1) );
     }
     template< int s >
     inline void init_sns_from_shape( int dimension )
@@ -1303,8 +1303,8 @@ protected:
     template< int s, typename ... OtherDims >
     int compute_offset( int i, OtherDims ... other_dimensions ) const
     {
-        assert( i < derived().shape(i) && "Index out of shape" );
-        return i*derived().stride(i) + compute_offset<s+1>( other_dimensions... );
+        assert( i < derived().shape(s) && "Index out of shape" );
+        return i*derived().stride(s) + compute_offset<s+1>( other_dimensions... );
     }
 
     template< int s >
