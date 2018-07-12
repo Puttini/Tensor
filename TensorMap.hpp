@@ -1179,7 +1179,7 @@ public:
     inline TensorOperator< Derived, dim, _current_dim+1 >& operator()(void)
     { return *this; }
 
-    inline TensorOperator< Derived, dim, _current_dim+1 >& operator()(void) const
+    inline const TensorOperator< Derived, dim, _current_dim+1 >& operator()(void) const
     { return *this; }
 
     template< typename ... Dimensions,
