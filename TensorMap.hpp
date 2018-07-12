@@ -509,15 +509,25 @@ protected:
                         && "Incompatible stride/shape" );
 
                 other_current_total_size *= other_shape[other_s-1];
-            }
 
-            init_sns_reshape_tensor_loop<
-                s, max(0,other_s-1),
-                ShapeDerived, StrideDerived >(
-                    other_shape, other_stride,
-                    current_total_size,
-                    other_current_total_size,
-                    dimensions... );
+                init_sns_reshape_tensor_loop<
+                    s, max(0,other_s-1),
+                    ShapeDerived, StrideDerived >(
+                        other_shape, other_stride,
+                        current_total_size,
+                        other_current_total_size,
+                        dimensions... );
+            }
+            else
+            {
+                init_sns_reshape_tensor_loop<
+                    s, max(0,other_s-1),
+                    ShapeDerived, StrideDerived >(
+                        other_shape, other_stride,
+                        current_total_size,
+                        other_current_total_size,
+                        dimensions... );
+            }
         }
         else // new_total_size < other_new_total_size
         {
