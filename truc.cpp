@@ -68,6 +68,8 @@ int main()
     aze(0)()() = rty(0)()();
     TensorMap<const float,2> uiop( rty()(0) );
     //my_f( TensorMap<const float,2>(rty()(0)) );
+    
+    new (&aze) TensorMap<float,3>( m, 3, 2, 2 );
 
     return 0;
 }

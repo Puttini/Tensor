@@ -1432,9 +1432,10 @@ public:
         typedef typename MatrixRef::Index Index;
 
         derived().set_data( mat.data() );
-        Base::template init_sns_reshape_tensor<dim-1,1,2,Index,Index>(
+        Base::template init_sns_reshape_tensor<dim-1,1>(
                 ShapeOwn<2,Index>( mat.rows(), mat.cols() ),
                 StrideOwn<2,Index>( mat.outerStride(), mat.innerStride() ),
+                1, 1,
                 dimensions... );
     }
 };
