@@ -1378,7 +1378,7 @@ public:
     template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
     TensorMapBase<Derived>( ScalType* data, const InnerStride& inner_stride, Dimensions ... dimensions )
     {
-        derived().set_data( nullptr );
+        derived().set_data( data );
         derived().set_stride( dim-1, inner_stride.inner );
         Base::template init_sns_from_shape<0>(dimensions...);
     }
