@@ -58,6 +58,18 @@ using EnableIf = typename std::enable_if< cond, EnableIfType >::type;
 
 struct EmptyConstructor {};
 
+// ----- Static max and min -----
+
+// std::max and std::min are constexpr since C++14 only
+
+template< typename T >
+constexpr T max( T x, T y )
+{ return x > y ? x : y; }
+
+template< typename T >
+constexpr T min( T x, T y )
+{ return x > y ? y : x; }
+
 // ----- Pack accessors -----
 
 // We need structures for template specialization
@@ -419,7 +431,7 @@ protected:
     // It has to be recursive to statically access the members of Dimensions...
     template< int s, int other_s,
         typename ShapeDerived, typename StrideDerived,
-        typename ... Dimensions, typename = EnableIf<(s>=0 && other_s>=0)> >
+        typename ... Dimensions >
     void init_sns_reshape_tensor(
             const Shape<ShapeDerived>& other_shape,
             const Stride<StrideDerived>& other_stride,
@@ -431,80 +443,80 @@ protected:
                 Traits<ShapeDerived>::dim == Traits<StrideDerived>::dim,
                 "Inconsistent stride/shape dimension" );
 
-        int new_total_size = current_total_size*nth_of_pack<s>(dimensions...);
-        int other_new_total_size = other_current_total_size*other_shape[other_s];
-
         Derived& d = derived();
         d.set_shape( s, nth_of_pack<s>(dimensions...) );
 
-        if ( new_total_size == other_new_total_size )
+        if ( current_total_size == other_current_total_size )
         {
             d.set_stride( s, other_stride[other_s] );
 
-            if ( s > 0 && other_s > 0)
+            if ( s > 0 && other_s > 0 )
             {
-                init_sns_reshape_tensor<s-1,other_s-1,ShapeDerived,StrideDerived>(
+                // We use max(0,s) so it can compile...
+                current_total_size *= nth_of_pack<max(0,s)>(dimensions...);
+                other_current_total_size *= other_shape[other_s];
+
+                init_sns_reshape_tensor<max(0,s-1),max(0,other_s-1),ShapeDerived,StrideDerived>(
                         other_shape, other_stride,
-                        new_total_size,
-                        other_new_total_size,
+                        current_total_size,
+                        other_current_total_size,
                         dimensions... );
             }
             else if ( s > 0 )
             {
-                init_sns_reshape_tensor<s-1,other_s,ShapeDerived,StrideDerived>(
+                current_total_size *= nth_of_pack<max(0,s)>(dimensions...);
+
+                init_sns_reshape_tensor<max(0,s-1),other_s,ShapeDerived,StrideDerived>(
                         other_shape, other_stride,
-                        new_total_size,
+                        current_total_size,
                         other_current_total_size,
                         dimensions... );
             }
             else if ( other_s > 0 )
             {
-                init_sns_reshape_tensor<s,other_s-1,ShapeDerived,StrideDerived>(
+                other_current_total_size *= other_shape[other_s];
+
+                init_sns_reshape_tensor<s,max(0,other_s-1),ShapeDerived,StrideDerived>(
                         other_shape, other_stride,
                         current_total_size,
-                        other_new_total_size,
+                        other_current_total_size,
                         dimensions... );
             }
+            // else: s==0 && other_s==0 && current_total_size==other_current_total_size
+            // Done!
         }
-        else if ( new_total_size > other_new_total_size )
+        else if ( current_total_size > other_current_total_size )
         {
             // Split other dimension. The strides must be compatible
             assert( other_s > 0
-                    && other_shape[other_s]*other_stride[other_s] == other_stride[other_s-1]
+                    && other_shape[other_s]*other_stride[other_s]
+                        == other_stride[other_s-1]
                     && "Incompatible stride/shape" );
 
-            init_sns_reshape_tensor<s,other_s-1,ShapeDerived,StrideDerived>(
+            current_total_size *= nth_of_pack<max(0,s-1)>(dimensions...);
+
+            init_sns_reshape_tensor<s,max(0,other_s-1),ShapeDerived,StrideDerived>(
                     other_shape, other_stride,
                     current_total_size,
-                    other_new_total_size,
+                    other_current_total_size,
                     dimensions... );
         }
         else // new_total_size < other_new_total_size
         {
             // Split this dimension. The strides have no constraint
-            d.set_stride( s, (s == dim-1)
-                             ? other_stride.innerStride()
-                             : d.stride(s+1) * d.shape(s+1) );
+            assert( s < dim-1 && "Invalid call?" );
+            assert( s > 0 && "Incompatible sizes" );
 
-            init_sns_reshape_tensor<s-1,other_s,ShapeDerived,StrideDerived>(
+            d.set_stride( s, d.stride(s+1) * d.shape(s+1) );
+            current_total_size *= nth_of_pack<max(0,s)>(dimensions...);
+
+            init_sns_reshape_tensor<max(0,s-1),other_s,ShapeDerived,StrideDerived>(
                     other_shape, other_stride,
-                    new_total_size,
+                    current_total_size,
                     other_current_total_size,
                     dimensions... );
         }
     }
-
-    // Fortunately we can overload the base case of this function by using 'const'
-    template< int s, int other_s,
-        typename ShapeDerived, typename StrideDerived,
-        typename ... Dimensions, typename = EnableIf<(s<0||other_s<0)> >
-    inline void init_sns_reshape_tensor(
-            const Shape<ShapeDerived>& other_shape,
-            const Stride<StrideDerived>& other_stride,
-            int current_total_size,
-            int other_current_total_size,
-            Dimensions ... dimensions ) const
-    {}
 
 public:
     // Reshape the tensor
