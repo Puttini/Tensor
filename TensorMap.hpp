@@ -683,7 +683,7 @@ public:
         static_assert( contract_dim < dim-1,
                 "Cannot contract this dimension with the next one" );
         Derived& d = derived();
-        assert( d.shape(contract_dim) ==
+        assert( d.stride(contract_dim) ==
                 d.stride(contract_dim+1) * d.shape(contract_dim+1)
                 && "Cannot be trivially contracted" );
 
@@ -716,7 +716,7 @@ public:
         static_assert( contract_dim < dim-1,
                 "Cannot contract this dimension with the next one" );
         const Derived& d = derived();
-        assert( d.shape(contract_dim) ==
+        assert( d.stride(contract_dim) ==
                 d.stride(contract_dim+1) * d.shape(contract_dim+1)
                 && "Cannot be trivially contracted" );
 
