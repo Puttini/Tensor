@@ -4,6 +4,8 @@
 template< typename Derived >
 void f( Eigen::MatrixBase< Derived >& mat ) {}
 
+void my_f( const TensorMap<const float,2>& t ) {}
+
 template< typename TensorDerived >
 void printTensorInfo( const TensorMapTools::TensorBase< TensorDerived >& t )
 {
@@ -42,9 +44,7 @@ void static_failures()
 }
 */
 
-void my_f( const TensorMap<const float,2>& t ) {}
-
-int main()
+int static_tests()
 {
     float data[100];
     for ( int i = 0 ; i < 100 ; ++i )
@@ -60,6 +60,7 @@ int main()
     t2()();
     t2()()();
     MatrixRM<float,3,4> m;
+    m << t;
     t << m;
 
     t2.data();
@@ -105,4 +106,49 @@ int main()
     printTensorInfo(d);
 
     return 0;
+}
+
+template< typename TensorDerived >
+void fillData( TensorBase< TensorDerived >& t )
+{
+    auto raveled = t.ravel();
+
+    for ( int i = 0 ; i < t.size() ; ++i )
+    {
+        typename TensorDerived::ScalType value = 0;
+
+        int pow10 = 1;
+        int rest = i;
+        for ( int d = TensorDerived::dim-1 ; d >= 0 ; --d )
+        {
+            int s = t.shape(d);
+            value += pow10 * ( rest%s );
+            rest /= s;
+            pow10 *= 10;
+        }
+
+        raveled( i ) = value;
+    }
+}
+
+int access_tests()
+{
+    TensorOwn<float,4> t( 3, 5, 4, 6 );
+    fillData(t);
+
+    assert( t(1,2)(3,4) == t(1)(2)(3)(4) );
+    assert( t(2,0,0)(0) == 2000 );
+    assert( t(0,0,1,0) == 10 );
+
+    assert( t.contractFirst()( 11, 1, 2 ) == 2112 );
+    assert( t.contractLast()( 2, 1, 23 ) == 2135 );
+    std::cout << t.middleSlices<2>( 2, 2 )( 0, 2, 1, 4 ) << std::endl;
+    assert( t.middleSlices<2>( 2, 2 )( 0, 2, 1, 4 ) == 234 );
+
+    return 0;
+}
+
+int main()
+{
+    return static_tests() + access_tests();
 }

@@ -615,7 +615,7 @@ public:
         assert( begin >= 0 && begin+sz <= derived().shape(slice_dim)
                 && "Invalid indices" );
         TensorMap<Const<ScalType>,dim> res( *this );
-        res.set_data( res.data() + derived().stride( slice_dim ) );
+        res.set_data( res.data() + begin * stride( slice_dim ) );
         res.set_shape( slice_dim, sz );
         return res;
     }
@@ -626,7 +626,7 @@ public:
         assert( begin >= 0 && begin+sz <= derived().shape(slice_dim)
                 && "Invalid indices" );
         TensorMap<ScalType,dim> res( *this );
-        res.set_data( res.data() + derived().stride( slice_dim ) );
+        res.set_data( res.data() + begin * stride( slice_dim ) );
         res.set_shape( slice_dim, sz );
         return res;
     }
@@ -1638,5 +1638,11 @@ using TensorMap = TensorMapTools::TensorMap<ScalType,dim>;
 
 template< typename ScalType, int dim >
 using TensorOwn = TensorMapTools::TensorOwn<ScalType,dim>;
+
+template< typename TensorDerived >
+using TensorBase = TensorMapTools::TensorBase<TensorDerived>;
+
+template< typename TensorDerived, int dim >
+using TensorDim = TensorMapTools::TensorDim<TensorDerived,dim>;
 
 #endif // TENSOR_MAP_HPP
