@@ -5,7 +5,6 @@
 #include <cassert>
 
 // Eigen matrix and vector
-// REMOVE ME
 template< typename ScalType, int rows = Eigen::Dynamic, int cols = Eigen::Dynamic >
 using MatrixRM = Eigen::Matrix<ScalType,rows,cols,Eigen::RowMajor>;
 
@@ -19,6 +18,16 @@ using Vector = MatrixCM<ScalType,size,1>;
 #pragma warning( push )
 #pragma warning( disable : 4244 )
 #endif
+
+// ----------------------------------------------------------------------------------------
+
+// These structures are used to help using big matrices of high dimensionality
+// There is much to improve, but it is still useful for now
+//
+// It is more user friendly than Eigen's Tensor structes (when it works)
+// Moreover, I had some troubles building Eigen's Tensor structes on Windows...
+
+// ----------------------------------------------------------------------------------------
 
 namespace TensorMapTools
 {
@@ -1415,18 +1424,25 @@ public:
     }
 
     // You can specify the inner stride...
-    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
-    TensorMapBase<Derived>( ScalType* data, const InnerStride& inner_stride, Dimensions ... dimensions )
+    template< typename ... OtherDimensions,
+              typename = EnableIf<sizeof...(OtherDimensions)==dim-1> >
+    TensorMapBase<Derived>( ScalType* data,
+                            const InnerStride& inner_stride,
+                            int first_dim,
+                            OtherDimensions ... other_dimensions )
     {
         derived().set_data( data );
         derived().set_stride( dim-1, inner_stride.inner );
-        Base::template init_sns_from_shape<0>(dimensions...);
+        Base::template init_sns_from_shape<0>( first_dim, other_dimensions...);
     }
 
     // ... or let it to 1 in the default case
-    template< typename ... Dimensions, typename = EnableIf<sizeof...(Dimensions)==dim> >
-    inline TensorMapBase( ScalType* data, Dimensions ... dimensions )
-     : TensorMapBase( data, InnerStride(1), dimensions... )
+    template< typename ... OtherDimensions,
+            typename = EnableIf<sizeof...(OtherDimensions)==dim-1> >
+    inline TensorMapBase( ScalType* data,
+                          int first_dim,
+                          OtherDimensions ... other_dimensions )
+     : TensorMapBase( data, InnerStride(1), first_dim, other_dimensions... )
     { }
 
     // You can also specify both shape and stride
