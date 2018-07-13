@@ -520,13 +520,22 @@ protected:
             }
             else
             {
-                init_sns_reshape_tensor_loop<
-                    s, max(0,other_s-1),
-                    ShapeDerived, StrideDerived >(
-                        other_shape, other_stride,
-                        current_total_size,
-                        other_current_total_size,
-                        dimensions... );
+                if ( s > 0 )
+                {
+                    current_total_size *= nth_of_pack< max(0,s-1) >( dimensions... );
+
+                    init_sns_reshape_tensor_loop<
+                        max(0,s-1), max(0,other_s-1),
+                        ShapeDerived, StrideDerived >(
+                            other_shape, other_stride,
+                            current_total_size,
+                            other_current_total_size,
+                            dimensions... );
+                }
+                else // current_total_size > 0, other_current_total_size == 0, s = 0
+                {
+                    assert( false && "Incompatible size (reshape zero-size tensor)" );
+                }
             }
         }
         else // new_total_size < other_new_total_size
