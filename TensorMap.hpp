@@ -15,6 +15,11 @@ using MatrixCM = Eigen::Matrix<ScalType,rows,cols,Eigen::ColMajor>;
 template< typename ScalType, int size = Eigen::Dynamic >
 using Vector = MatrixCM<ScalType,size,1>;
 
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable : 4244 )
+#endif
+
 namespace TensorMapTools
 {
 
@@ -1610,7 +1615,7 @@ TensorBase<Derived>::reshape( Dimensions ... dimensions )
 {
     Derived& d = derived();
     TensorMap< ScalType, new_dim > new_tensor( (EmptyConstructor()) );
-    new_tensor.template init_sns_reshape_tensor(
+    new_tensor.init_sns_reshape_tensor(
             d.data(),
             d.shape(), d.stride(),
             dimensions... );
@@ -1624,7 +1629,7 @@ TensorBase<Derived>::reshape( Dimensions ... dimensions ) const
 {
     const Derived& d = derived();
     TensorMap< Const<ScalType>, new_dim > new_tensor( (EmptyConstructor()) );
-    new_tensor.template init_sns_reshape_tensor(
+    new_tensor.init_sns_reshape_tensor(
             d.data(),
             d.shape(), d.stride(),
             dimensions... );
@@ -1644,5 +1649,9 @@ using TensorBase = TensorMapTools::TensorBase<TensorDerived>;
 
 template< typename TensorDerived, int dim >
 using TensorDim = TensorMapTools::TensorDim<TensorDerived,dim>;
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 #endif // TENSOR_MAP_HPP
